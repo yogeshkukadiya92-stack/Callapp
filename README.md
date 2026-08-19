@@ -28,3 +28,7 @@ Phase 1 deliberately uses `ACTION_DIAL`, which needs no sensitive runtime permis
 Android/OEM behavior varies: dialer-role prompts, background activity starts, dual-SIM behavior, and Telecom callbacks may differ. Automatic capture cannot be promised unless the app is the enabled default phone app and the device implements Telecom correctly.
 
 First launch now presents a three-step disclosure covering offline business data and optional call tracking. It requests no permissions: dialer role and runtime permissions remain contextual, user initiated, and independently reported in More. Manual CRM remains available when access is denied. No call recording or Accessibility Service is present.
+
+## Container deployment
+
+The root `Dockerfile` builds the debug APK in an Android SDK container and serves it from an Nginx download page at `/callflow-debug.apk`. This is intended for controlled QA distribution; production distribution still requires a release signing key and Play Console workflow.

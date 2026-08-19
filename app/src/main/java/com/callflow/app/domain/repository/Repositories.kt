@@ -1,0 +1,45 @@
+package com.callflow.app.domain.repository
+
+import com.callflow.app.core.model.DailyMetrics
+import com.callflow.app.core.model.Lead
+import com.callflow.app.core.model.NewLead
+import com.callflow.app.core.model.CreateLeadResult
+import com.callflow.app.core.model.TimelineItem
+import com.callflow.app.core.model.CallRecord
+import com.callflow.app.core.model.DispositionInput
+import com.callflow.app.core.model.DispositionOption
+import com.callflow.app.core.model.FollowUpRecord
+import com.callflow.app.core.model.SessionState
+import kotlinx.coroutines.flow.Flow
+
+interface LeadRepository {
+    fun observeCallingQueue(): Flow<List<Lead>>
+    fun search(query: String): Flow<List<Lead>>
+    suspend fun seedIfEmpty()
+    fun observeLead(id: String): Flow<Lead?>
+    fun observeTimeline(leadId: String): Flow<List<TimelineItem>>
+    suspend fun createLead(value: NewLead): CreateLeadResult
+}
+
+interface MetricsRepository { fun observeToday(): Flow<DailyMetrics> }
+interface SyncRepository { fun observePendingCount(): Flow<Int>; fun observeConflictCount(): Flow<Int>; suspend fun syncPending(): Result<Unit> }
+
+interface CallRepository {
+    suspend fun startOutgoingCall(lead: Lead): Result<String>
+    fun observeCall(callId: String): Flow<CallRecord?>
+    fun observeRecentCalls(): Flow<List<CallRecord>>
+    fun observeDispositions(): Flow<List<DispositionOption>>
+    suspend fun saveDisposition(input: DispositionInput): Result<Unit>
+}
+
+interface FollowUpRepository {
+    fun observeAll(): Flow<List<FollowUpRecord>>
+    suspend fun complete(id: String): Result<Unit>
+}
+
+interface AuthRepository {
+    val session: Flow<SessionState>
+    suspend fun login(identity: String, password: String): Result<Unit>
+    suspend fun logout()
+    suspend fun refreshDeviceStatus(): Result<Unit>
+}

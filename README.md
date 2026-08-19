@@ -1,0 +1,30 @@
+# CallFlow
+
+CallFlow is an offline-first native Android application for a sales calling and follow-up team. The current MVP includes local lead search/detail/timeline, a prioritized calling queue, call-attempt persistence, Telecom lifecycle capture when supported, post-call dispositions, notes, follow-ups, Save & Next, call history, live daily metrics, and a WorkManager outbox.
+
+Startup now routes through authentication. Development fake login and real API login share `AuthRepository`; passwords are not stored and resulting tokens are AES-GCM encrypted with an Android Keystore key before DataStore persistence.
+
+## Build
+
+Requirements: JDK 17+, Android SDK 35, and Android Studio Ladybug or newer.
+
+```bash
+./gradlew testDebugUnitTest
+./gradlew assembleDebug
+```
+
+Set the SDK path in an untracked `local.properties`. The application ID can be changed with `callflow.applicationId=com.yourcompany.callflow` in `gradle.properties`. The API base URL and fake-backend switch currently live as non-secret BuildConfig defaults; production CI should inject them per environment.
+
+## Architecture
+
+Room is the UI-facing source of truth. UI state is delivered by repositories as `Flow`; network changes update Room, and local mutations pair their entity write with a durable `sync_events` outbox write. Retrofit DTOs never enter UI code directly. Hilt owns bindings and makes fake/real data sources replaceable.
+
+The development fake repository seeds two local records once and only behind `LeadRepository`. Fake sync acknowledges durable outbox events through `SyncRepository`; it does not bypass Room or UI architecture. Set `USE_FAKE_BACKEND=false` and inject the environment URL/authentication interceptor for a live environment.
+
+## Call integration
+
+Phase 1 deliberately uses `ACTION_DIAL`, which needs no sensitive runtime permission and preserves manual CRM mode. Automatic lifecycle capture will be enabled only after explicit disclosure and successful `ROLE_DIALER` acquisition. See [CALL_INTEGRATION.md](CALL_INTEGRATION.md).
+
+Android/OEM behavior varies: dialer-role prompts, background activity starts, dual-SIM behavior, and Telecom callbacks may differ. Automatic capture cannot be promised unless the app is the enabled default phone app and the device implements Telecom correctly.
+
+First launch now presents a three-step disclosure covering offline business data and optional call tracking. It requests no permissions: dialer role and runtime permissions remain contextual, user initiated, and independently reported in More. Manual CRM remains available when access is denied. No call recording or Accessibility Service is present.

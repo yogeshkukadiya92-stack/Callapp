@@ -9,7 +9,14 @@ ENV PATH="${JAVA_HOME}/bin:${PATH}"
 
 WORKDIR /workspace
 COPY . .
-RUN chmod +x gradlew && ./gradlew assembleDebug --no-daemon --console=plain
+RUN chmod +x gradlew \
+    && ./gradlew assembleDebug --no-daemon --console=plain & \
+    gradle_pid=$!; \
+    while kill -0 "$gradle_pid" 2>/dev/null; do \
+      echo "Gradle build in progress..."; \
+      sleep 30; \
+    done; \
+    wait "$gradle_pid"
 
 FROM nginx:1.27-alpine
 COPY deploy/index.html /usr/share/nginx/html/index.html

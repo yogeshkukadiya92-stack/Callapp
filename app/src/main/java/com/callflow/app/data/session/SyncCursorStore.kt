@@ -15,5 +15,6 @@ private val Context.syncDataStore by preferencesDataStore("sync_metadata")
 class SyncCursorStore @Inject constructor(@ApplicationContext private val context: Context) {
     suspend fun current(): String? = context.syncDataStore.data.first()[CURSOR]
     suspend fun update(value: String) { context.syncDataStore.edit { it[CURSOR] = value } }
+    suspend fun clear() { context.syncDataStore.edit { it.remove(CURSOR) } }
     companion object { private val CURSOR = stringPreferencesKey("delta_cursor") }
 }

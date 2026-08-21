@@ -1,5 +1,6 @@
 package com.callflow.app.ui.auth
 
+import com.callflow.app.BuildConfig
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -38,6 +39,12 @@ fun LoginScreen(viewModel: LoginViewModel = hiltViewModel()) {
         OutlinedTextField(state.password, viewModel::password, label = { Text("Password") }, singleLine = true, visualTransformation = PasswordVisualTransformation(), enabled = !state.loading, modifier = Modifier.fillMaxWidth())
         state.error?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 10.dp)) }
         Button(onClick = viewModel::login, enabled = !state.loading, modifier = Modifier.fillMaxWidth().height(56.dp).padding(top = 12.dp)) { if (state.loading) CircularProgressIndicator(modifier = Modifier.height(20.dp)) else Text("SIGN IN") }
-        Text("Development builds use the fake repository. Credentials are never stored; session tokens are encrypted with Android Keystore.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 18.dp))
+        Text(
+            if (BuildConfig.USE_FAKE_BACKEND) "Demo mode: use any email/mobile and password."
+            else "Connected to Coach For Life CRM. Use your Sales Access email/mobile and password.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = 18.dp),
+        )
     }
 }

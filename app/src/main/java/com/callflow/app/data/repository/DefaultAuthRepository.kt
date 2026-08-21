@@ -9,13 +9,23 @@ import com.callflow.app.data.session.EncryptedSessionStore
 import com.callflow.app.data.session.StoredSession
 import com.callflow.app.domain.repository.AuthRepository
 import com.callflow.app.data.session.DeviceIdentityStore
+import com.callflow.app.data.session.SyncCursorStore
+import com.callflow.app.data.local.CallFlowDao
+import com.callflow.app.domain.repository.SyncRepository
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.first
 import java.util.UUID
 import javax.inject.Inject
 
-class DefaultAuthRepository @Inject constructor(private val api: CallFlowApi, private val store: EncryptedSessionStore, private val devices: DeviceIdentityStore) : AuthRepository {
+class DefaultAuthRepository @Inject constructor(
+    private val api: CallFlowApi,
+    private val store: EncryptedSessionStore,
+    private val devices: DeviceIdentityStore,
+    private val sync: SyncRepository,
+    private val dao: CallFlowDao,
+    private val cursors: SyncCursorStore,
+) : AuthRepository {
     override val session: Flow<SessionState> = store.session.map { value -> value?.let { SessionState.SignedIn(it.employeeName, it.deviceStatus) } ?: SessionState.SignedOut }
     override suspend fun login(identity: String, password: String): Result<Unit> = runCatching {
         require(identity.isNotBlank()) { "Enter your mobile number or email" }
@@ -30,6 +40,16 @@ class DefaultAuthRepository @Inject constructor(private val api: CallFlowApi, pr
             StoredSession(token.accessToken, token.refreshToken, identity.substringBefore('@'), status, device.deviceId)
         }
         store.save(stored)
+        if (!BuildConfig.USE_FAKE_BACKEND) {
+            try {
+                dao.deleteDemoLeads()
+                cursors.clear()
+                sync.syncPending().getOrThrow()
+            } catch (error: Exception) {
+                store.clear()
+                throw error
+            }
+        }
     }
     override suspend fun logout() = store.clear()
     override suspend fun refreshDeviceStatus(): Result<Unit> = runCatching {

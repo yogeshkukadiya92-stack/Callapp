@@ -1,5 +1,6 @@
 package com.callflow.app.data.repository
 
+import com.callflow.app.BuildConfig
 import com.callflow.app.core.model.Lead
 import com.callflow.app.core.model.NewLead
 import com.callflow.app.core.model.CreateLeadResult
@@ -47,6 +48,7 @@ class OfflineLeadRepository @Inject constructor(
     }
 
     override suspend fun seedIfEmpty() {
+        if (!BuildConfig.USE_FAKE_BACKEND) return
         if (dao.observeCallingQueue(1).first().isNotEmpty()) return
         // Development-only seed through the fake repository boundary; production builds replace this binding.
         val now = clock.now()

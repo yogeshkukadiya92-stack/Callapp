@@ -136,6 +136,9 @@ interface CallFlowDao {
     @Query("DELETE FROM leads WHERE id = :id")
     suspend fun deleteLead(id: String)
 
+    @Query("DELETE FROM leads WHERE serverId IS NULL AND updatedBy = 'local-user'")
+    suspend fun deleteDemoLeads()
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertConflict(conflict: SyncConflictEntity)
 

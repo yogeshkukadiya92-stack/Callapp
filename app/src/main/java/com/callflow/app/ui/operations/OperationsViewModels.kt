@@ -10,14 +10,19 @@ import com.callflow.app.domain.repository.SyncRepository
 import com.callflow.app.domain.repository.AuthRepository
 import com.callflow.app.telecom.PermissionManager
 import com.callflow.app.core.model.PermissionState
+import com.callflow.app.core.call.CallAnalysis
+import com.callflow.app.core.call.CallAnalysisCalculator
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
-@HiltViewModel class CallsViewModel @Inject constructor(calls: CallRepository) : ViewModel() {
-    val calls = calls.observeRecentCalls().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+@HiltViewModel class CallsViewModel @Inject constructor(repository: CallRepository) : ViewModel() {
+    val calls = repository.observeRecentCalls().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    val analysis = calls.map { values: List<CallRecord> -> CallAnalysisCalculator.calculate(values) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), CallAnalysis())
 }
 @HiltViewModel class FollowUpsViewModel @Inject constructor(private val repository: FollowUpRepository) : ViewModel() {
     val followUps = repository.observeAll().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())

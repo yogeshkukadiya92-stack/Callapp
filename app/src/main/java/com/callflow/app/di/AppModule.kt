@@ -34,6 +34,7 @@ import dagger.hilt.components.SingletonComponent
 import okhttp3.OkHttpClient
 import javax.inject.Named
 import com.callflow.app.data.remote.AccessTokenInterceptor
+import com.callflow.app.data.remote.DashboardConnectorInterceptor
 import com.callflow.app.data.remote.RefreshTokenAuthenticator
 import com.callflow.app.data.remote.SessionRevocationInterceptor
 import com.callflow.app.data.remote.RefreshTokenApi
@@ -65,14 +66,15 @@ object AppProviders {
             .addMigrations(CallFlowDatabase.MIGRATION_2_3)
             .build()
     @Provides fun dao(database: CallFlowDatabase): CallFlowDao = database.dao()
-    @Provides @Singleton @Named("rawHttp") fun rawHttp(): OkHttpClient = OkHttpClient.Builder().build()
+    @Provides @Singleton @Named("rawHttp") fun rawHttp(connector: DashboardConnectorInterceptor): OkHttpClient =
+        OkHttpClient.Builder().addInterceptor(connector).build()
     @Provides @Singleton fun refreshApi(@Named("rawHttp") client: OkHttpClient): RefreshTokenApi = Retrofit.Builder()
         .baseUrl(BuildConfig.API_BASE_URL)
         .client(client)
         .addConverterFactory(MoshiConverterFactory.create(Moshi.Builder().build()))
         .build().create(RefreshTokenApi::class.java)
-    @Provides @Singleton fun authenticatedHttp(accessToken: AccessTokenInterceptor, authenticator: RefreshTokenAuthenticator, revocation: SessionRevocationInterceptor): OkHttpClient =
-        OkHttpClient.Builder().addInterceptor(accessToken).addInterceptor(revocation).authenticator(authenticator).build()
+    @Provides @Singleton fun authenticatedHttp(accessToken: AccessTokenInterceptor, connector: DashboardConnectorInterceptor, authenticator: RefreshTokenAuthenticator, revocation: SessionRevocationInterceptor): OkHttpClient =
+        OkHttpClient.Builder().addInterceptor(connector).addInterceptor(accessToken).addInterceptor(revocation).authenticator(authenticator).build()
     @Provides @Singleton fun api(client: OkHttpClient): CallFlowApi = Retrofit.Builder()
         .baseUrl(BuildConfig.API_BASE_URL)
         .client(client)

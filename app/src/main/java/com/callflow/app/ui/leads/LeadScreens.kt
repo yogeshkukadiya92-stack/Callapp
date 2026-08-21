@@ -14,6 +14,9 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Call
+import androidx.compose.material.icons.outlined.Email
+import androidx.compose.material.icons.outlined.Event
+import androidx.compose.material.icons.outlined.NoteAdd
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.Icon
@@ -32,6 +35,10 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.callflow.app.core.model.Lead
+import com.callflow.app.ui.theme.Indigo
+import com.callflow.app.ui.theme.PremiumCard
+import com.callflow.app.ui.theme.SectionHeader
+import com.callflow.app.ui.theme.Slate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
@@ -73,12 +80,15 @@ private fun LeadRow(lead: Lead, onClick: () -> Unit) = Card(
 fun LeadDetailScreen(onCall: (String) -> Unit, viewModel: LeadDetailViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val lead = state.lead ?: return Column(Modifier.padding(24.dp)) { Text("Lead not found") }
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        item { Text(lead.name, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold); lead.company?.let { Text(it, style = MaterialTheme.typography.titleMedium) }; Text(lead.displayPhone, color = MaterialTheme.colorScheme.primary); Text(lead.stageId.uppercase(), style = MaterialTheme.typography.labelLarge) }
-        item { Button(onClick = { onCall(lead.id) }, modifier = Modifier.fillMaxWidth().height(56.dp)) { Icon(Icons.Outlined.Call, null); Text("  CALL NOW") } }
-        item { Text("Timeline", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold) }
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(horizontal = 20.dp, vertical = 22.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        item { PremiumCard(Modifier.fillMaxWidth()) { Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) { Text(lead.name, style = MaterialTheme.typography.headlineMedium); lead.company?.let { Text(it, style = MaterialTheme.typography.titleMedium, color = Slate) }; Text(lead.displayPhone, color = Indigo); androidx.compose.material3.AssistChip(onClick = {}, label = { Text(lead.stageId.replace('_', ' ').uppercase()) }) } } }
+        item { Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) { QuickAction("Email", Icons.Outlined.Email, Modifier.weight(1f)); QuickAction("Schedule", Icons.Outlined.Event, Modifier.weight(1f)); QuickAction("Add note", Icons.Outlined.NoteAdd, Modifier.weight(1f)) } }
+        item { Button(onClick = { onCall(lead.id) }, modifier = Modifier.fillMaxWidth().height(58.dp), shape = androidx.compose.foundation.shape.RoundedCornerShape(18.dp)) { Icon(Icons.Outlined.Call, null); Text("  CALL NOW") } }
+        item { SectionHeader("Activity timeline") }
         if (state.timeline.isEmpty()) item { Text("No activity yet", color = MaterialTheme.colorScheme.onSurfaceVariant) }
-        items(state.timeline, key = { it.id }) { event -> Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(14.dp)) { Text(event.title, fontWeight = FontWeight.SemiBold); Text(DateTimeFormatter.ofPattern("dd MMM, HH:mm").withZone(ZoneId.systemDefault()).format(event.occurredAt), style = MaterialTheme.typography.labelMedium); event.detail?.let { Text(it) } } } }
+        items(state.timeline, key = { it.id }) { event -> PremiumCard(Modifier.fillMaxWidth()) { Column(Modifier.padding(16.dp)) { Text(event.title, fontWeight = FontWeight.SemiBold); Text(DateTimeFormatter.ofPattern("dd MMM, HH:mm").withZone(ZoneId.systemDefault()).format(event.occurredAt), style = MaterialTheme.typography.labelMedium, color = Slate); event.detail?.let { Text(it) } } } }
         item { Spacer(Modifier.height(64.dp)) }
     }
 }
+
+@Composable private fun QuickAction(label: String, icon: androidx.compose.ui.graphics.vector.ImageVector, modifier: Modifier) = PremiumCard(modifier) { Column(Modifier.padding(vertical = 14.dp), horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally) { Icon(icon, null, tint = Indigo); Spacer(Modifier.height(6.dp)); Text(label, style = MaterialTheme.typography.labelMedium) } }

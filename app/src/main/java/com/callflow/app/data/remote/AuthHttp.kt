@@ -1,5 +1,6 @@
 package com.callflow.app.data.remote
 
+import com.callflow.app.BuildConfig
 import com.callflow.app.data.session.SessionTokenStore
 import kotlinx.coroutines.runBlocking
 import okhttp3.Authenticator
@@ -18,6 +19,17 @@ class AccessTokenInterceptor @Inject constructor(private val sessions: SessionTo
         if (request.header("Authorization") != null) return chain.proceed(request)
         val token = runBlocking { sessions.current()?.accessToken }
         return chain.proceed(if (token.isNullOrBlank()) request else request.newBuilder().header("Authorization", "Bearer $token").build())
+    }
+}
+
+@Singleton
+class DashboardConnectorInterceptor @Inject constructor() : Interceptor {
+    override fun intercept(chain: Interceptor.Chain): Response {
+        val request = chain.request().newBuilder()
+            .header("X-CallFlow-Client", "android")
+            .header("X-CallFlow-Connector", BuildConfig.DASHBOARD_CONNECTOR_ID)
+            .build()
+        return chain.proceed(request)
     }
 }
 

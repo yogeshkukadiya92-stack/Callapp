@@ -53,6 +53,15 @@ data class DispositionDeltaDto(val id: String, val code: String, val name: Strin
 @JsonClass(generateAdapter = true)
 data class AppConfigurationDeltaDto(val key: String, val value: String, val updatedAt: Long)
 @JsonClass(generateAdapter = true)
+data class DashboardConnectorStatusDto(
+    val connectorId: String,
+    val dashboardName: String,
+    val status: String,
+    val syncDirection: String,
+    val lastSuccessfulSyncAt: String?,
+    val capabilities: List<String> = emptyList(),
+)
+@JsonClass(generateAdapter = true)
 data class DeltaSyncResponse(
     val leads: List<LeadDeltaDto> = emptyList(),
     val calls: List<CallDeltaDto> = emptyList(),
@@ -72,6 +81,7 @@ interface CallFlowApi {
     @POST("auth/login") suspend fun login(@Body request: LoginRequest): TokenResponse
     @POST("auth/refresh") suspend fun refresh(@Body refreshToken: Map<String, String>): TokenResponse
     @POST("devices/register") suspend fun registerDevice(@Header("Authorization") authorization: String, @Body request: DeviceRegistrationRequest): DeviceRegistrationResponse
+    @GET("crm/status") suspend fun connectorStatus(): DashboardConnectorStatusDto
     @POST("sync/batch") suspend fun batchSync(@Body request: BatchSyncRequest): BatchSyncResponse
     @GET("sync/changes") suspend fun changes(@Query("cursor") cursor: String?): DeltaSyncResponse
 }

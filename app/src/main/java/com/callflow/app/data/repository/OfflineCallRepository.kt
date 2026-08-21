@@ -53,12 +53,15 @@ class OfflineCallRepository @Inject constructor(
         database.withTransaction {
             val dispositionId = UUID.randomUUID().toString()
             dao.insertCallDisposition(CallDispositionEntity(dispositionId, input.callId, input.leadId, input.disposition.id, now, "local-user", SyncStatus.PENDING.name))
-            if (input.note.isNotBlank()) dao.insertNote(NoteEntity(UUID.randomUUID().toString(), input.leadId, input.callId, input.note.trim(), now, "local-user", "local-install", SyncStatus.PENDING.name))
+            val noteId = if (input.note.isNotBlank()) UUID.randomUUID().toString() else null
+            noteId?.let { dao.insertNote(NoteEntity(it, input.leadId, input.callId, input.note.trim(), now, "local-user", "local-install", SyncStatus.PENDING.name)) }
             input.followUpAt?.let { at -> dao.insertFollowUp(FollowUpEntity(checkNotNull(followUpId), input.leadId, at.toEpochMilli(), input.note.trim().ifBlank { null }, 1, "local-user", "CALL", "PENDING", now, now, 1, SyncStatus.PENDING.name)) }
             dao.updateLeadAfterDisposition(input.leadId, input.disposition.targetStageId ?: input.disposition.code.lowercase(), input.followUpAt?.toEpochMilli(), now, "local-user")
-            dao.insertSyncEvent(outbox("CALL_DISPOSITION", dispositionId, "CREATE", "{\"callId\":\"${input.callId}\",\"dispositionId\":\"${input.disposition.id}\"}", now))
+            val safeNote = input.note.trim().replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n")
+            dao.insertSyncEvent(outbox("CALL_DISPOSITION", dispositionId, "CREATE", "{\"leadId\":\"${input.leadId}\",\"callId\":\"${input.callId}\",\"dispositionId\":\"${input.disposition.id}\",\"dispositionCode\":\"${input.disposition.code}\",\"note\":\"$safeNote\",\"createdAt\":$now}", now))
+            noteId?.let { dao.insertSyncEvent(outbox("NOTE", it, "CREATE", "{\"leadId\":\"${input.leadId}\",\"callId\":\"${input.callId}\",\"body\":\"$safeNote\",\"createdAt\":$now}", now)) }
             dao.insertSyncEvent(outbox("LEAD", input.leadId, "UPDATE", "{\"stageId\":\"${input.disposition.targetStageId ?: input.disposition.code.lowercase()}\",\"followUpAt\":${input.followUpAt?.toEpochMilli() ?: "null"}}", now))
-            followUpId?.let { dao.insertSyncEvent(outbox("FOLLOW_UP", it, "CREATE", "{\"leadId\":\"${input.leadId}\",\"scheduledAt\":${input.followUpAt?.toEpochMilli()}}", now)) }
+            followUpId?.let { dao.insertSyncEvent(outbox("FOLLOW_UP", it, "CREATE", "{\"leadId\":\"${input.leadId}\",\"scheduledAt\":${input.followUpAt?.toEpochMilli()},\"note\":\"$safeNote\",\"createdAt\":$now}", now)) }
         }
     }
 

@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -15,6 +16,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Call
+import androidx.compose.material.icons.outlined.Mic
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -23,6 +25,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
@@ -34,6 +37,10 @@ import androidx.compose.ui.semantics.semantics
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.callflow.app.telecom.CallIntegrationState
+import com.callflow.app.ui.theme.Indigo
+import com.callflow.app.ui.theme.PremiumCard
+import com.callflow.app.ui.theme.SectionHeader
+import com.callflow.app.ui.theme.Slate
 
 @Composable
 fun CallingScreen(onCallStarted: (String, String) -> Unit, viewModel: CallingViewModel = hiltViewModel()) {
@@ -57,13 +64,18 @@ fun CallingScreen(onCallStarted: (String, String) -> Unit, viewModel: CallingVie
 @Composable
 fun DispositionScreen(onSaved: () -> Unit, onSaveNext: () -> Unit, viewModel: DispositionViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsStateWithLifecycle()
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        item { Text(state.lead?.name ?: "Post call", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold); Text("CALL RESULT", style = MaterialTheme.typography.labelLarge) }
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(horizontal = 20.dp, vertical = 22.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
+        item { Text("How was the call with ${state.lead?.name ?: "this lead"}?", style = MaterialTheme.typography.headlineMedium); Text("Log the outcome to keep your pipeline updated.", color = Slate) }
+        item { SectionHeader("Disposition") }
         item { FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) { state.options.forEach { option -> FilterChip(selected = state.selected?.id == option.id, onClick = { viewModel.select(option) }, label = { Text(option.name) }) } } }
-        item { OutlinedTextField(state.note, viewModel::note, label = { Text("Notes") }, minLines = 3, modifier = Modifier.fillMaxWidth()) }
-        item { Text("Follow-up", fontWeight = FontWeight.SemiBold); FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) { AssistChip(onClick = { viewModel.schedule(86_400) }, label = { Text("Tomorrow") }); AssistChip(onClick = { viewModel.schedule(172_800) }, label = { Text("2 Days") }); AssistChip(onClick = { viewModel.schedule(604_800) }, label = { Text("Next Week") }) }; state.followUpAt?.let { Text("Scheduled: $it") } }
+        item { PremiumCard(Modifier.fillMaxWidth()) { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { Text("Call notes", style = MaterialTheme.typography.titleMedium); Row { Icon(Icons.Outlined.Mic, null, tint = Indigo); Text(" Voice note", color = Indigo, style = MaterialTheme.typography.labelLarge) } }
+            OutlinedTextField(value = state.note, onValueChange = viewModel::note, placeholder = { Text("Add details from the conversation…") }, supportingText = { Text(if (state.selected?.requiresNote == true) "A note is required for this result" else "Optional · ${state.note.length}/500") }, minLines = 4, maxLines = 8, shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth())
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) { listOf("Scheduled demo", "Pricing discussed", "Follow-up next week").forEach { suggestion -> AssistChip(onClick = { viewModel.addSuggestion(suggestion) }, label = { Text(suggestion) }) } }
+        } } }
+        item { SectionHeader("Quick follow-up") }
+        item { FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) { AssistChip(onClick = { viewModel.schedule(3_600) }, label = { Text("In 1 hour") }); AssistChip(onClick = { viewModel.schedule(86_400) }, label = { Text("Tomorrow") }); AssistChip(onClick = { viewModel.schedule(604_800) }, label = { Text("Next Monday") }) }; state.followUpAt?.let { Text("Scheduled: $it", color = Indigo) } }
         state.error?.let { item { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Assertive }) } }
-        item { Button(onClick = { viewModel.save(onSaved) }, enabled = !state.saving, modifier = Modifier.fillMaxWidth()) { Text("SAVE") } }
-        item { Button(onClick = { viewModel.save(onSaveNext) }, enabled = !state.saving, modifier = Modifier.fillMaxWidth().height(56.dp)) { Text("SAVE & NEXT") } }
+        item { Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) { OutlinedButton(onClick = { viewModel.save(onSaved) }, enabled = !state.saving, modifier = Modifier.weight(1f).height(56.dp), shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp)) { Text("SAVE") }; Button(onClick = { viewModel.save(onSaveNext) }, enabled = !state.saving, modifier = Modifier.weight(1.35f).height(56.dp), shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp)) { Text("SAVE & NEXT") } } }
     }
 }

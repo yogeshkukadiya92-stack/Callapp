@@ -74,7 +74,8 @@ class DispositionViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), mutable.value)
     init { viewModelScope.launch { offlineCalls.seedDispositionsIfEmpty() } }
     fun select(value: DispositionOption) { mutable.value = mutable.value.copy(selected = value, error = null) }
-    fun note(value: String) { mutable.value = mutable.value.copy(note = value) }
+    fun note(value: String) { if (value.length <= 500) mutable.value = mutable.value.copy(note = value, error = null) }
+    fun addSuggestion(value: String) { note(listOf(state.value.note, value).filter { it.isNotBlank() }.joinToString(" · ")) }
     fun schedule(secondsFromNow: Long) { mutable.value = mutable.value.copy(followUpAt = Instant.now().plusSeconds(secondsFromNow)) }
     fun save(onSaved: () -> Unit) {
         val current = state.value

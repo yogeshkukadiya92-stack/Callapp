@@ -13,7 +13,26 @@ Requirements: JDK 17+, Android SDK 35, and Android Studio Ladybug or newer.
 ./gradlew assembleDebug
 ```
 
-Set the SDK path in an untracked `local.properties`. The application ID can be changed with `callflow.applicationId=com.yourcompany.callflow` in `gradle.properties`. The API base URL and fake-backend switch currently live as non-secret BuildConfig defaults; production CI should inject them per environment.
+Set the SDK path in an untracked `local.properties`. The application ID can be changed with `callflow.applicationId=com.yourcompany.callflow` in `gradle.properties`. The API base URL, dashboard connector id, and fake-backend switch are non-secret Gradle properties; production CI should inject them per environment.
+
+```bash
+./gradlew assembleDebug \
+  -Pcallflow.useFakeBackend=false \
+  -Pcallflow.apiBaseUrl=https://your-cfl-dashboard.example.com/api/ \
+  -Pcallflow.dashboardConnectorId=cfl-dashboard
+```
+
+See [CFL_DASHBOARD_CONNECTOR.md](CFL_DASHBOARD_CONNECTOR.md) for the CFLDashboard and custom dashboard integration contract.
+
+For a local working API:
+
+```bash
+python3 cfl-dashboard-server/server.py --host 0.0.0.0 --port 8010
+./gradlew assembleDebug \
+  -Pcallflow.useFakeBackend=false \
+  -Pcallflow.apiBaseUrl=http://10.0.2.2:8010/ \
+  -Pcallflow.dashboardConnectorId=cfl-dashboard
+```
 
 ## Architecture
 

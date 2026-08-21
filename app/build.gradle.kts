@@ -19,8 +19,12 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         testInstrumentationRunnerArguments["clearPackageData"] = "true"
         vectorDrawables.useSupportLibrary = true
-        buildConfigField("String", "API_BASE_URL", "\"https://api.invalid/\"")
-        buildConfigField("boolean", "USE_FAKE_BACKEND", "true")
+        val apiBaseUrl = providers.gradleProperty("callflow.apiBaseUrl").orElse("https://api.invalid/").get()
+        val dashboardConnectorId = providers.gradleProperty("callflow.dashboardConnectorId").orElse("cfl-dashboard").get()
+        val useFakeBackend = providers.gradleProperty("callflow.useFakeBackend").orElse("true").get()
+        buildConfigField("String", "API_BASE_URL", "\"$apiBaseUrl\"")
+        buildConfigField("String", "DASHBOARD_CONNECTOR_ID", "\"$dashboardConnectorId\"")
+        buildConfigField("boolean", "USE_FAKE_BACKEND", useFakeBackend)
     }
 
     buildFeatures {

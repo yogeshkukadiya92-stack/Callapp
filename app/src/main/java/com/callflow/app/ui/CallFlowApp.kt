@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
@@ -17,6 +18,7 @@ import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.MoreHoriz
 import androidx.compose.material.icons.outlined.People
 import androidx.compose.material.icons.outlined.Schedule
+import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -26,6 +28,8 @@ import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
@@ -60,6 +64,13 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.ui.Alignment
 import com.callflow.app.ui.onboarding.OnboardingScreen
 import com.callflow.app.ui.theme.CallFlowTheme
+import com.callflow.app.ui.theme.ActivityChart
+import com.callflow.app.ui.theme.Emerald
+import com.callflow.app.ui.theme.Indigo
+import com.callflow.app.ui.theme.KpiCard
+import com.callflow.app.ui.theme.PremiumCard
+import com.callflow.app.ui.theme.SectionHeader
+import com.callflow.app.ui.theme.Slate
 
 private data class Destination(val route: String, val label: String, val icon: ImageVector)
 private val destinations = listOf(
@@ -98,9 +109,14 @@ private fun MainNavigation() {
     val nav = rememberNavController()
     val backStack by nav.currentBackStackEntryAsState()
     Scaffold(bottomBar = {
-        NavigationBar {
+        NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
             destinations.forEach { item ->
-                NavigationBarItem(selected = backStack?.destination?.route == item.route, onClick = { nav.navigate(item.route) { launchSingleTop = true } }, icon = { Icon(item.icon, null) }, label = { Text(item.label) })
+                NavigationBarItem(
+                    selected = backStack?.destination?.route == item.route,
+                    onClick = { nav.navigate(item.route) { launchSingleTop = true } },
+                    icon = { Icon(item.icon, null) }, label = { Text(item.label) },
+                    colors = NavigationBarItemDefaults.colors(indicatorColor = MaterialTheme.colorScheme.primaryContainer),
+                )
             }
         }
     }) { padding ->
@@ -120,11 +136,24 @@ private fun MainNavigation() {
 @Composable
 private fun HomeScreen(onStartCalling: () -> Unit, viewModel: HomeViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsStateWithLifecycle()
-    LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        item { Text("Good Morning", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.SemiBold); Text("Your calling day at a glance", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+    LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(horizontal = 20.dp, vertical = 22.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
+        item {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Column { Text("Good morning, Yogesh", style = MaterialTheme.typography.headlineMedium); Text("Ready to make an impact?", color = Slate) }
+                FloatingActionButton(onClick = {}, modifier = Modifier.size(44.dp), containerColor = MaterialTheme.colorScheme.surface) { Icon(Icons.Outlined.Notifications, null, tint = Indigo) }
+            }
+        }
         item { MetricsGrid(state.metrics) }
-        item { Button(onClick = onStartCalling, modifier = Modifier.fillMaxWidth().height(56.dp)) { Icon(Icons.Outlined.Call, null); Text("  START CALLING") } }
-        item { Text("Today’s follow-ups", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold) }
+        item {
+            PremiumCard(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    SectionHeader("Call activity", "7 days")
+                    ActivityChart(listOf(12f, 18f, 16f, 25f, 20f, 29f, 32f))
+                }
+            }
+        }
+        item { Button(onClick = onStartCalling, modifier = Modifier.fillMaxWidth().height(58.dp), shape = androidx.compose.foundation.shape.RoundedCornerShape(18.dp)) { Icon(Icons.Outlined.Call, null); Text("  START CALLING") } }
+        item { SectionHeader("Priority follow-ups", "View all") }
         if (state.queue.isEmpty()) item { Text("Your queue is clear.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
         items(state.queue.take(4), key = Lead::id) { LeadCard(it) }
     }
@@ -133,10 +162,9 @@ private fun HomeScreen(onStartCalling: () -> Unit, viewModel: HomeViewModel = hi
 @Composable
 private fun MetricsGrid(metrics: DailyMetrics) {
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        Metric("Calls", metrics.calls.toString(), Modifier.weight(1f)); Metric("Connected", metrics.connected.toString(), Modifier.weight(1f)); Metric("Follow-ups", metrics.followUpsDue.toString(), Modifier.weight(1f))
+        KpiCard("Calls", metrics.calls.toString(), Indigo, Modifier.weight(1f)); KpiCard("Connected", metrics.connected.toString(), Emerald, Modifier.weight(1f)); KpiCard("Follow-ups", metrics.followUpsDue.toString(), MaterialTheme.colorScheme.error, Modifier.weight(1f))
     }
 }
 
-@Composable private fun Metric(label: String, value: String, modifier: Modifier) = Card(modifier) { Column(Modifier.padding(14.dp)) { Text(value, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold); Text(label, style = MaterialTheme.typography.labelMedium) } }
-@Composable private fun LeadCard(lead: Lead) = Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(16.dp)) { Text(lead.name, fontWeight = FontWeight.SemiBold); lead.company?.let { Text(it) }; Spacer(Modifier.height(4.dp)); Text(lead.displayPhone, color = MaterialTheme.colorScheme.primary) } }
+@Composable private fun LeadCard(lead: Lead) = PremiumCard(Modifier.fillMaxWidth()) { Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) { Column(Modifier.weight(1f)) { Text(lead.name, fontWeight = FontWeight.SemiBold); lead.company?.let { Text(it, color = Slate) }; Spacer(Modifier.height(4.dp)); Text(lead.displayPhone, color = Indigo) }; FloatingActionButton(onClick = {}, modifier = Modifier.size(42.dp), containerColor = MaterialTheme.colorScheme.primaryContainer) { Icon(Icons.Outlined.Call, null, tint = Indigo) } } }
 @Composable private fun PlaceholderScreen(title: String, body: String) = Column(Modifier.fillMaxSize().padding(24.dp)) { Text(title, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.SemiBold); Spacer(Modifier.height(12.dp)); Text(body, color = MaterialTheme.colorScheme.onSurfaceVariant) }

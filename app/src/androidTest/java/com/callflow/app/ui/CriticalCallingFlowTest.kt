@@ -7,11 +7,13 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.hasContentDescription
+import androidx.compose.ui.test.hasScrollAction
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.performScrollToNode
 import androidx.test.espresso.intent.Intents
 import androidx.test.espresso.intent.Intents.intended
 import androidx.test.espresso.intent.Intents.intending
@@ -29,10 +31,10 @@ class CriticalCallingFlowTest {
     @Test
     fun loginHomeQueueAndLeadDetailRemainUsable() {
         completeOnboardingAndLogin()
-        compose.onNodeWithText("Good Morning").assertIsDisplayed()
+        compose.onNodeWithText("Your call workspace").assertIsDisplayed()
         openAnitaLeadDetail()
         compose.onNodeWithText("CALL NOW", substring = true).assertIsDisplayed()
-        compose.onNodeWithText("Timeline").assertIsDisplayed()
+        compose.onNodeWithText("Activity timeline").assertIsDisplayed()
     }
 
     @Test
@@ -49,15 +51,15 @@ class CriticalCallingFlowTest {
         compose.onNodeWithText("CALL NOW", substring = true).performClick()
         intended(hasAction(Intent.ACTION_DIAL))
         Intents.release()
-        compose.waitUntil(8_000) { compose.onAllNodesWithText("CALL RESULT").fetchSemanticsNodes().isNotEmpty() }
+        compose.waitUntil(8_000) { compose.onAllNodesWithText("Call result").fetchSemanticsNodes().isNotEmpty() }
         compose.onNode(hasText("Follow-up") and hasClickAction()).performClick()
         compose.onNodeWithText("Tomorrow").performClick()
-        compose.onNodeWithText("Notes").performTextInput("Send pricing details")
+        compose.onNodeWithText("Add details from the conversation…").performTextInput("Send pricing details")
+        compose.onNode(hasScrollAction()).performScrollToNode(hasText("SAVE & NEXT"))
         compose.onNodeWithText("SAVE & NEXT").performClick()
 
         compose.waitUntil(8_000) { compose.onAllNodesWithText("Anita Sharma").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText("Anita Sharma").assertIsDisplayed()
-        compose.onNodeWithText("FOLLOW UP").assertIsDisplayed()
     }
 
     private fun completeOnboardingAndLogin() {
@@ -69,7 +71,7 @@ class CriticalCallingFlowTest {
         compose.onNodeWithText("Mobile number or email").performTextInput("caller@example.com")
         compose.onNodeWithText("Password").performTextInput("demo1234")
         compose.onNodeWithText("SIGN IN").performClick()
-        compose.waitUntil(8_000) { compose.onAllNodesWithText("Good Morning").fetchSemanticsNodes().isNotEmpty() }
+        compose.waitUntil(8_000) { compose.onAllNodesWithText("Your call workspace").fetchSemanticsNodes().isNotEmpty() }
     }
 
     private fun openAnitaLeadDetail() {

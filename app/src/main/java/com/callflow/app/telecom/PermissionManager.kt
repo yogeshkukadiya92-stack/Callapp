@@ -34,4 +34,9 @@ class PermissionManager @Inject constructor(
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.CALL_PHONE) == PackageManager.PERMISSION_GRANTED) return PermissionState.GRANTED
         return if (activity != null && !ActivityCompat.shouldShowRequestPermissionRationale(activity, Manifest.permission.CALL_PHONE)) PermissionState.PERMANENTLY_DENIED else PermissionState.DENIED
     }
+
+    fun callLogPermission(activity: Activity? = null): PermissionState {
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CALL_LOG) == PackageManager.PERMISSION_GRANTED) return PermissionState.GRANTED
+        return if (activity != null && !ActivityCompat.shouldShowRequestPermissionRationale(activity, Manifest.permission.READ_CALL_LOG)) PermissionState.PERMANENTLY_DENIED else PermissionState.DENIED
+    }
 }

@@ -20,6 +20,8 @@ data class LeadEntity(
     val updatedAt: Long,
     val updatedBy: String,
     val version: Long,
+    val doNotCall: Boolean = false,
+    val duplicateCount: Int = 1,
 )
 
 @Entity(tableName = "calls", indices = [Index("leadId"), Index("employeeId"), Index("startedAt"), Index("syncStatus")])

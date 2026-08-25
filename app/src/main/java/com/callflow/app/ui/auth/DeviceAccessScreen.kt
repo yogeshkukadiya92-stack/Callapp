@@ -5,6 +5,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.PhoneAndroid
 import androidx.compose.material3.Button
@@ -33,7 +35,7 @@ fun DeviceAccessScreen(status: DeviceStatus, checking: Boolean, error: String?, 
         DeviceStatus.REVOKED -> "This session can no longer access business data. Sign out or contact your administrator."
         DeviceStatus.ACTIVE -> "You can continue to CallFlow."
     }
-    Column(Modifier.fillMaxSize().padding(32.dp), verticalArrangement = Arrangement.Center) {
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(32.dp), verticalArrangement = Arrangement.Center) {
         Icon(Icons.Outlined.PhoneAndroid, null, tint = MaterialTheme.colorScheme.primary)
         Text(title, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 18.dp))
         Text(body, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(vertical = 18.dp))

@@ -87,6 +87,14 @@ class OfflineCallDurabilityTest {
         assertTrue(dao.callEvents(call.id).isEmpty())
     }
 
+    @Test fun phase_one_dispositions_include_callback_and_custom_outcome() = runTest {
+        val repository = OfflineCallRepository(database, database.dao(), clock)
+        repository.seedDispositionsIfEmpty()
+        val options = repository.observeDispositions().first()
+        assertTrue(options.any { it.code == "CALLBACK_REQUESTED" && it.requiresFollowUp })
+        assertTrue(options.any { it.code == "CUSTOM" && it.requiresNote })
+    }
+
     private fun openDatabase() = Room.databaseBuilder(context, CallFlowDatabase::class.java, databaseName)
         .addMigrations(CallFlowDatabase.MIGRATION_1_2, CallFlowDatabase.MIGRATION_2_3)
         .build()

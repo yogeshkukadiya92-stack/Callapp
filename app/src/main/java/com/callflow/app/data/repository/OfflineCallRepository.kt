@@ -26,11 +26,13 @@ import kotlinx.coroutines.flow.map
 import java.time.Instant
 import java.util.UUID
 import javax.inject.Inject
+import com.callflow.app.notifications.FollowUpReminderScheduler
 
 class OfflineCallRepository @Inject constructor(
     private val database: CallFlowDatabase,
     private val dao: CallFlowDao,
     private val clock: DateTimeProvider,
+    private val followUpNotifications: FollowUpReminderScheduler = FollowUpReminderScheduler.NoOp,
 ) : CallRepository {
     override suspend fun startOutgoingCall(lead: Lead): Result<String> = runCatching {
         val id = UUID.randomUUID().toString()
@@ -57,23 +59,26 @@ class OfflineCallRepository @Inject constructor(
             noteId?.let { dao.insertNote(NoteEntity(it, input.leadId, input.callId, input.note.trim(), now, "local-user", "local-install", SyncStatus.PENDING.name)) }
             input.followUpAt?.let { at -> dao.insertFollowUp(FollowUpEntity(checkNotNull(followUpId), input.leadId, at.toEpochMilli(), input.note.trim().ifBlank { null }, 1, "local-user", "CALL", "PENDING", now, now, 1, SyncStatus.PENDING.name)) }
             dao.updateLeadAfterDisposition(input.leadId, input.disposition.targetStageId ?: input.disposition.code.lowercase(), input.followUpAt?.toEpochMilli(), now, "local-user")
+            if (input.disposition.code.equals("WRONG_NUMBER", ignoreCase = true)) dao.markLeadDoNotCall(input.leadId, now, "local-user")
             val safeNote = input.note.trim().replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n")
             dao.insertSyncEvent(outbox("CALL_DISPOSITION", dispositionId, "CREATE", "{\"leadId\":\"${input.leadId}\",\"callId\":\"${input.callId}\",\"dispositionId\":\"${input.disposition.id}\",\"dispositionCode\":\"${input.disposition.code}\",\"note\":\"$safeNote\",\"createdAt\":$now}", now))
             noteId?.let { dao.insertSyncEvent(outbox("NOTE", it, "CREATE", "{\"leadId\":\"${input.leadId}\",\"callId\":\"${input.callId}\",\"body\":\"$safeNote\",\"createdAt\":$now}", now)) }
             dao.insertSyncEvent(outbox("LEAD", input.leadId, "UPDATE", "{\"stageId\":\"${input.disposition.targetStageId ?: input.disposition.code.lowercase()}\",\"followUpAt\":${input.followUpAt?.toEpochMilli() ?: "null"}}", now))
             followUpId?.let { dao.insertSyncEvent(outbox("FOLLOW_UP", it, "CREATE", "{\"leadId\":\"${input.leadId}\",\"scheduledAt\":${input.followUpAt?.toEpochMilli()},\"note\":\"$safeNote\",\"createdAt\":$now}", now)) }
         }
+        followUpId?.let { id -> input.followUpAt?.let { followUpNotifications.schedule(id, it) } }
     }
 
     suspend fun seedDispositionsIfEmpty() {
-        if (dao.observeDispositions().first().isNotEmpty()) return
-        dao.upsertDispositions(listOf(
+        val defaults = listOf(
             option("hot", "HOT", "Hot", 0, false, false, "hot"), option("interested", "INTERESTED", "Interested", 1, false, false, "interested"),
-            option("follow_up", "FOLLOW_UP", "Follow-up", 2, false, true, "follow_up"), option("info_sent", "INFORMATION_SENT", "Information sent", 3, false, false, "contacted"),
-            option("not_interested", "NOT_INTERESTED", "Not interested", 4, true, false, "lost"), option("no_answer", "NO_ANSWER", "No answer", 5, false, false, null),
-            option("busy", "BUSY", "Busy", 6, false, true, null), option("wrong_number", "WRONG_NUMBER", "Wrong number", 7, true, false, "lost"),
-            option("converted", "CONVERTED", "Converted", 8, false, false, "won"),
-        ))
+            option("callback", "CALLBACK_REQUESTED", "Callback requested", 2, false, true, "follow_up"), option("follow_up", "FOLLOW_UP", "Follow-up", 3, false, true, "follow_up"), option("info_sent", "INFORMATION_SENT", "Information sent", 4, false, false, "contacted"),
+            option("not_interested", "NOT_INTERESTED", "Not interested", 5, true, false, "lost"), option("no_answer", "NO_ANSWER", "No answer", 6, false, false, null),
+            option("busy", "BUSY", "Busy", 7, false, true, null), option("wrong_number", "WRONG_NUMBER", "Wrong number", 8, true, false, "lost"),
+            option("converted", "CONVERTED", "Converted", 9, false, false, "won"), option("custom", "CUSTOM", "Custom outcome", 10, true, false, null),
+        )
+        val existingIds = dao.observeDispositions().first().map(DispositionEntity::id).toSet()
+        dao.upsertDispositions(defaults.filterNot { it.id in existingIds })
     }
 
     private fun option(id: String, code: String, name: String, order: Int, note: Boolean, followUp: Boolean, stage: String?) = DispositionEntity(id, code, name, null, order, true, note, followUp, stage)

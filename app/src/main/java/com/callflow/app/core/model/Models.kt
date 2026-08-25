@@ -3,6 +3,7 @@ package com.callflow.app.core.model
 import java.time.Instant
 
 enum class CallDirection { INCOMING, OUTGOING }
+enum class CallStatus { CONNECTED, MISSED, NOT_CONNECTED }
 enum class CallEventType { INITIATED, RINGING, CONNECTED, ENDED, MISSED, REJECTED, FAILED }
 enum class SyncStatus { PENDING, SYNCING, SYNCED, FAILED }
 enum class FollowUpStatus { PENDING, COMPLETED, CANCELLED, RESCHEDULED, MISSED }
@@ -18,6 +19,13 @@ data class CallRecord(
     val failureReason: String?,
     val syncStatus: SyncStatus,
 )
+
+val CallRecord.status: CallStatus
+    get() = when {
+        answeredAt != null -> CallStatus.CONNECTED
+        direction == CallDirection.INCOMING -> CallStatus.MISSED
+        else -> CallStatus.NOT_CONNECTED
+    }
 
 data class DispositionOption(
     val id: String,
@@ -43,6 +51,7 @@ data class FollowUpRecord(
     val note: String?,
     val status: FollowUpStatus,
     val priority: Int,
+    val type: String = "CALL",
 )
 
 data class Lead(
@@ -59,7 +68,12 @@ data class Lead(
     val nextFollowUpAt: Instant?,
     val updatedAt: Instant,
     val version: Long,
+    val doNotCall: Boolean = false,
+    val duplicateCount: Int = 1,
 )
+
+enum class QueuePriority { OVERDUE, DUE_SOON, HOT, NEW, STANDARD }
+data class PriorityLead(val lead: Lead, val priority: QueuePriority)
 
 data class DailyMetrics(
     val calls: Int = 0,
@@ -68,6 +82,12 @@ data class DailyMetrics(
     val talkTimeSeconds: Long = 0,
     val followUpsDue: Int = 0,
     val conversions: Int = 0,
+)
+
+data class SyncHealth(
+    val lastAttemptAt: Instant? = null,
+    val lastSuccessfulAt: Instant? = null,
+    val lastError: String? = null,
 )
 
 data class TimelineItem(
@@ -97,7 +117,7 @@ enum class PermissionState { GRANTED, DENIED, PERMANENTLY_DENIED, NOT_REQUIRED, 
 sealed interface SessionState {
     data object Loading : SessionState
     data object SignedOut : SessionState
-    data class SignedIn(val employeeName: String, val deviceStatus: DeviceStatus) : SessionState
+    data class SignedIn(val employeeName: String, val employeePhone: String?, val deviceStatus: DeviceStatus) : SessionState
 }
 
 sealed interface AppError {

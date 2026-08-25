@@ -1,5 +1,6 @@
 package com.callflow.app.data.repository
 
+import android.content.Context
 import com.callflow.app.BuildConfig
 import com.callflow.app.core.model.DeviceStatus
 import com.callflow.app.core.model.SessionState
@@ -11,7 +12,8 @@ import com.callflow.app.domain.repository.AuthRepository
 import com.callflow.app.data.session.DeviceIdentityStore
 import com.callflow.app.data.session.SyncCursorStore
 import com.callflow.app.data.local.CallFlowDao
-import com.callflow.app.domain.repository.SyncRepository
+import com.callflow.app.sync.SyncWorker
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.first
@@ -22,11 +24,11 @@ class DefaultAuthRepository @Inject constructor(
     private val api: CallFlowApi,
     private val store: EncryptedSessionStore,
     private val devices: DeviceIdentityStore,
-    private val sync: SyncRepository,
     private val dao: CallFlowDao,
     private val cursors: SyncCursorStore,
+    @ApplicationContext private val context: Context,
 ) : AuthRepository {
-    override val session: Flow<SessionState> = store.session.map { value -> value?.let { SessionState.SignedIn(it.employeeName, it.deviceStatus) } ?: SessionState.SignedOut }
+    override val session: Flow<SessionState> = store.session.map { value -> value?.let { SessionState.SignedIn(it.employeeName, it.employeePhone, it.deviceStatus) } ?: SessionState.SignedOut }
     override suspend fun login(identity: String, password: String): Result<Unit> = runCatching {
         require(identity.isNotBlank()) { "Enter your mobile number or email" }
         require(password.length >= 4) { "Password must contain at least 4 characters" }
@@ -37,19 +39,14 @@ class DefaultAuthRepository @Inject constructor(
             val token = api.login(LoginRequest(identity.trim(), password = password))
             val device = api.registerDevice("Bearer ${token.accessToken}", devices.registrationRequest())
             val status = parseDeviceStatus(device.status)
-            StoredSession(token.accessToken, token.refreshToken, identity.substringBefore('@'), status, device.deviceId)
+            StoredSession(token.accessToken, token.refreshToken, token.employeeName?.ifBlank { null } ?: identity.substringBefore('@'), status, device.deviceId, token.mobile?.ifBlank { null })
+        }
+        if (!BuildConfig.USE_FAKE_BACKEND) {
+            dao.deleteDemoLeads()
+            cursors.clear()
         }
         store.save(stored)
-        if (!BuildConfig.USE_FAKE_BACKEND) {
-            try {
-                dao.deleteDemoLeads()
-                cursors.clear()
-                sync.syncPending().getOrThrow()
-            } catch (error: Exception) {
-                store.clear()
-                throw error
-            }
-        }
+        if (!BuildConfig.USE_FAKE_BACKEND) SyncWorker.syncAfterLogin(context)
     }
     override suspend fun logout() = store.clear()
     override suspend fun refreshDeviceStatus(): Result<Unit> = runCatching {

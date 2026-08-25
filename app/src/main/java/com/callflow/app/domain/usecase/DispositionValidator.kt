@@ -1,6 +1,7 @@
 package com.callflow.app.domain.usecase
 
 import com.callflow.app.core.model.DispositionInput
+import java.time.Instant
 
 sealed interface DispositionValidation {
     data object Valid : DispositionValidation
@@ -11,6 +12,7 @@ object DispositionValidator {
     fun validate(input: DispositionInput): DispositionValidation = when {
         input.disposition.requiresNote && input.note.isBlank() -> DispositionValidation.Invalid("A note is required for this result")
         input.disposition.requiresFollowUp && input.followUpAt == null -> DispositionValidation.Invalid("Choose a follow-up date and time")
+        input.followUpAt?.isBefore(Instant.now()) == true -> DispositionValidation.Invalid("Follow-up time must be in the future")
         else -> DispositionValidation.Valid
     }
 }

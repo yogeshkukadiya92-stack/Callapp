@@ -62,7 +62,7 @@ class DeltaSyncApplier @Inject constructor(private val database: CallFlowDatabas
     }
 }
 
-private fun LeadDeltaDto.toEntity() = LeadEntity(id, serverId, name, company, city, normalizedPhone, displayPhone, stageId, assignedUserId, campaignId, nextFollowUpAt, updatedAt, updatedBy, version)
+private fun LeadDeltaDto.toEntity() = LeadEntity(id, serverId, name, company, city, normalizedPhone, displayPhone, stageId, assignedUserId, campaignId, nextFollowUpAt, updatedAt, updatedBy, version, doNotCall, duplicateCount)
 private fun com.callflow.app.data.remote.FollowUpDeltaDto.toEntity() = FollowUpEntity(id, leadId, scheduledAt, note, priority, assignedTo, type, status, createdAt, updatedAt, version, SyncStatus.SYNCED.name)
 private fun LeadEntity.diagnosticPayload() = "{\"version\":$version,\"stageId\":\"${stageId.replace("\"", "") }\",\"updatedAt\":$updatedAt}"
 private fun LeadDeltaDto.diagnosticPayload() = "{\"version\":$version,\"stageId\":\"${stageId.replace("\"", "") }\",\"updatedAt\":$updatedAt}"

@@ -14,6 +14,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -36,11 +37,14 @@ fun PremiumCard(modifier: Modifier = Modifier, content: @Composable () -> Unit) 
 ) { content() }
 
 @Composable
-fun SectionHeader(title: String, action: String? = null) = Row(
+fun SectionHeader(title: String, action: String? = null, onAction: (() -> Unit)? = null) = Row(
     Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically,
 ) {
     Text(title, style = MaterialTheme.typography.titleLarge)
-    action?.let { Text(it, color = Indigo, style = MaterialTheme.typography.labelLarge) }
+    action?.let {
+        if (onAction != null) TextButton(onClick = onAction) { Text(it, color = Indigo, style = MaterialTheme.typography.labelLarge) }
+        else Text(it, color = Indigo, style = MaterialTheme.typography.labelLarge)
+    }
 }
 
 @Composable
@@ -54,7 +58,7 @@ fun KpiCard(label: String, value: String, accent: Color, modifier: Modifier = Mo
 }
 
 @Composable
-fun ActivityChart(values: List<Float>, modifier: Modifier = Modifier) {
+fun ActivityChart(values: List<Float>, modifier: Modifier = Modifier, labels: List<String> = listOf("M", "T", "W", "T", "F", "S", "S")) {
     val safe = values.ifEmpty { listOf(0f) }
     Column(modifier) {
         Canvas(Modifier.fillMaxWidth().height(140.dp)) {
@@ -68,7 +72,7 @@ fun ActivityChart(values: List<Float>, modifier: Modifier = Modifier) {
             points.forEach { drawCircle(Indigo, 4.dp.toPx(), it); drawCircle(Color.White, 2.dp.toPx(), it) }
         }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            listOf("M", "T", "W", "T", "F", "S", "S").take(safe.size).forEach { Text(it, style = MaterialTheme.typography.labelSmall, color = Slate) }
+            labels.forEach { Text(it, style = MaterialTheme.typography.labelSmall, color = Slate) }
         }
     }
 }

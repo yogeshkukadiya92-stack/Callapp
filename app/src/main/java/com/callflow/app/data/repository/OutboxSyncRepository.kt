@@ -13,6 +13,8 @@ import kotlinx.coroutines.flow.Flow
 import javax.inject.Inject
 import com.callflow.app.data.session.SyncCursorStore
 import com.callflow.app.sync.DeltaSyncApplier
+import com.callflow.app.data.session.SyncHealthStore
+import com.callflow.app.core.model.SyncHealth
 
 class OutboxSyncRepository @Inject constructor(
     private val database: CallFlowDatabase,
@@ -21,14 +23,19 @@ class OutboxSyncRepository @Inject constructor(
     private val clock: DateTimeProvider,
     private val cursors: SyncCursorStore,
     private val deltaApplier: DeltaSyncApplier,
+    private val healthStore: SyncHealthStore,
 ) : SyncRepository {
     override fun observePendingCount(): Flow<Int> = dao.observePendingSyncCount()
     override fun observeConflictCount(): Flow<Int> = dao.observeOpenConflictCount()
+    override fun observeHealth(): Flow<SyncHealth> = healthStore.health
 
     override suspend fun syncPending(): Result<Unit> = runCatching {
+        val attemptAt = clock.now().toEpochMilli()
+        healthStore.attempted(attemptAt)
         val events = dao.pendingSyncEvents(100)
         if (BuildConfig.USE_FAKE_BACKEND) {
             if (events.isNotEmpty()) dao.markSynced(events.map { it.eventUuid })
+            healthStore.succeeded(clock.now().toEpochMilli())
             return@runCatching
         }
         try {
@@ -39,9 +46,11 @@ class OutboxSyncRepository @Inject constructor(
                 if (response.acceptedEventIds.isNotEmpty()) dao.markSynced(response.acceptedEventIds)
                 if (response.failedEventIds.isNotEmpty()) dao.markSyncFailed(response.failedEventIds, "Server rejected this event")
             }
-            deltaApplier.apply(api.changes(cursor))
+            deltaApplier.apply(api.changes(null))
+            healthStore.succeeded(clock.now().toEpochMilli())
         } catch (error: Exception) {
             if (events.isNotEmpty()) dao.markSyncFailed(events.map { it.eventUuid }, error.message?.take(300) ?: "Sync failed")
+            healthStore.failed(clock.now().toEpochMilli(), error.message ?: "Sync failed")
             throw error
         }
     }

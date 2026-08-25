@@ -2,6 +2,7 @@ package com.callflow.app.ui.theme
 
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Typography
+import androidx.compose.material3.Shapes
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
@@ -9,6 +10,8 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.unit.dp
 
 val Navy = Color(0xFF0F172A)
 val Indigo = Color(0xFF6366F1)
@@ -34,8 +37,12 @@ private val CallFlowTypography = Typography(
     bodyMedium = TextStyle(fontFamily = FontFamily.SansSerif, fontSize = 14.sp, lineHeight = 20.sp),
     labelLarge = TextStyle(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.SemiBold, fontSize = 14.sp),
 )
+private val CallFlowShapes = Shapes(
+    extraSmall = RoundedCornerShape(8.dp), small = RoundedCornerShape(12.dp),
+    medium = RoundedCornerShape(16.dp), large = RoundedCornerShape(20.dp), extraLarge = RoundedCornerShape(28.dp),
+)
 
 @Composable
 fun CallFlowTheme(content: @Composable () -> Unit) {
-    MaterialTheme(colorScheme = CallFlowColors, typography = CallFlowTypography, content = content)
+    MaterialTheme(colorScheme = CallFlowColors, typography = CallFlowTypography, shapes = CallFlowShapes, content = content)
 }

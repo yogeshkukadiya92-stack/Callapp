@@ -10,6 +10,7 @@ import com.callflow.app.core.model.DispositionInput
 import com.callflow.app.core.model.DispositionOption
 import com.callflow.app.core.model.FollowUpRecord
 import com.callflow.app.core.model.SessionState
+import com.callflow.app.core.model.SyncHealth
 import kotlinx.coroutines.flow.Flow
 
 interface LeadRepository {
@@ -22,7 +23,12 @@ interface LeadRepository {
 }
 
 interface MetricsRepository { fun observeToday(): Flow<DailyMetrics> }
-interface SyncRepository { fun observePendingCount(): Flow<Int>; fun observeConflictCount(): Flow<Int>; suspend fun syncPending(): Result<Unit> }
+interface SyncRepository {
+    fun observePendingCount(): Flow<Int>
+    fun observeConflictCount(): Flow<Int>
+    fun observeHealth(): Flow<SyncHealth>
+    suspend fun syncPending(): Result<Unit>
+}
 
 interface CallRepository {
     suspend fun startOutgoingCall(lead: Lead): Result<String>
@@ -35,6 +41,8 @@ interface CallRepository {
 interface FollowUpRepository {
     fun observeAll(): Flow<List<FollowUpRecord>>
     suspend fun complete(id: String): Result<Unit>
+    suspend fun update(id: String, scheduledAt: java.time.Instant, note: String?): Result<Unit>
+    suspend fun cancel(id: String): Result<Unit>
 }
 
 interface AuthRepository {

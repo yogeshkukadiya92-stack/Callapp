@@ -8,6 +8,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Call
 import androidx.compose.material.icons.outlined.PhoneAndroid
@@ -38,7 +40,7 @@ private val pages = listOf(
 fun OnboardingScreen(onComplete: () -> Unit) {
     var page by rememberSaveable { mutableIntStateOf(0) }
     val value = pages[page]
-    Column(Modifier.fillMaxSize().padding(28.dp), verticalArrangement = Arrangement.Center) {
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 28.dp, vertical = 32.dp), verticalArrangement = Arrangement.Center) {
         Icon(value.icon, null, tint = MaterialTheme.colorScheme.primary)
         Text(value.title, style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 22.dp))
         Text(value.body, style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 14.dp))

@@ -10,6 +10,8 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.security.KeyStore
 import java.util.Base64
 import javax.crypto.Cipher
@@ -22,10 +24,11 @@ import com.callflow.app.core.model.DeviceStatus
 
 private val Context.sessionDataStore by preferencesDataStore("secure_session")
 
-data class StoredSession(val accessToken: String, val refreshToken: String, val employeeName: String, val deviceStatus: DeviceStatus = DeviceStatus.ACTIVE, val deviceId: String? = null)
+data class StoredSession(val accessToken: String, val refreshToken: String, val employeeName: String, val deviceStatus: DeviceStatus = DeviceStatus.ACTIVE, val deviceId: String? = null, val employeePhone: String? = null)
 
 interface SessionTokenStore {
     suspend fun save(value: StoredSession)
+    suspend fun saveIfCurrent(expectedRefreshToken: String, value: StoredSession): Boolean
     suspend fun clear()
     suspend fun current(): StoredSession?
 }
@@ -34,22 +37,41 @@ interface SessionTokenStore {
 class EncryptedSessionStore @Inject constructor(@ApplicationContext private val context: Context) : SessionTokenStore {
     @Volatile private var cached: StoredSession? = null
     @Volatile private var cacheLoaded = false
+    private val mutationLock = Mutex()
     val session: Flow<StoredSession?> = context.sessionDataStore.data.map { preferences ->
         preferences[SESSION]?.let { runCatching { decode(decrypt(it)) }.getOrNull() }
     }
 
-    override suspend fun save(value: StoredSession) { context.sessionDataStore.edit { it[SESSION] = encrypt(encode(value)) }; cached = value; cacheLoaded = true }
-    override suspend fun clear() { context.sessionDataStore.edit { it.remove(SESSION) }; cached = null; cacheLoaded = true }
-    override suspend fun current(): StoredSession? {
+    override suspend fun save(value: StoredSession) = mutationLock.withLock { saveUnlocked(value) }
+    override suspend fun saveIfCurrent(expectedRefreshToken: String, value: StoredSession): Boolean = mutationLock.withLock {
+        val current = currentUnlocked()
+        if (current?.refreshToken != expectedRefreshToken) return@withLock false
+        saveUnlocked(value)
+        true
+    }
+    override suspend fun clear() = mutationLock.withLock {
+        context.sessionDataStore.edit { it.remove(SESSION) }
+        cached = null
+        cacheLoaded = true
+    }
+    override suspend fun current(): StoredSession? = mutationLock.withLock { currentUnlocked() }
+
+    private suspend fun currentUnlocked(): StoredSession? {
         if (cacheLoaded) return cached
         return session.first().also { cached = it; cacheLoaded = true }
     }
 
-    private fun encode(value: StoredSession) = listOf(value.accessToken, value.refreshToken, value.employeeName, value.deviceStatus.name, value.deviceId.orEmpty()).joinToString("\u001F") { Base64.getEncoder().encodeToString(it.toByteArray()) }
+    private suspend fun saveUnlocked(value: StoredSession) {
+        context.sessionDataStore.edit { it[SESSION] = encrypt(encode(value)) }
+        cached = value
+        cacheLoaded = true
+    }
+
+    private fun encode(value: StoredSession) = listOf(value.accessToken, value.refreshToken, value.employeeName, value.deviceStatus.name, value.deviceId.orEmpty(), value.employeePhone.orEmpty()).joinToString("\u001F") { Base64.getEncoder().encodeToString(it.toByteArray()) }
     private fun decode(value: String): StoredSession {
         val fields = value.split("\u001F").map { String(Base64.getDecoder().decode(it)) }
-        require(fields.size == 3 || fields.size == 5)
-        return StoredSession(fields[0], fields[1], fields[2], fields.getOrNull(3)?.let { runCatching { DeviceStatus.valueOf(it) }.getOrNull() } ?: DeviceStatus.ACTIVE, fields.getOrNull(4)?.ifBlank { null })
+        require(fields.size == 3 || fields.size == 5 || fields.size == 6)
+        return StoredSession(fields[0], fields[1], fields[2], fields.getOrNull(3)?.let { runCatching { DeviceStatus.valueOf(it) }.getOrNull() } ?: DeviceStatus.ACTIVE, fields.getOrNull(4)?.ifBlank { null }, fields.getOrNull(5)?.ifBlank { null })
     }
     private fun encrypt(value: String): String {
         val cipher = Cipher.getInstance(TRANSFORMATION); cipher.init(Cipher.ENCRYPT_MODE, key())

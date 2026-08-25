@@ -25,10 +25,14 @@ import javax.inject.Inject
 import com.callflow.app.telecom.CallIntegrationManager
 import com.callflow.app.core.model.Outcome
 import com.callflow.app.ui.theme.CallFlowTheme
+import com.callflow.app.telecom.CallLogImporter
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.launch
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
     @Inject lateinit var callIntegration: CallIntegrationManager
+    @Inject lateinit var callLogImporter: CallLogImporter
     private var dialNumber by mutableStateOf<String?>(null)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -41,6 +45,12 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onNewIntent(intent: Intent) { super.onNewIntent(intent); setIntent(intent); dialNumber = intent.data?.schemeSpecificPart }
+
+    override fun onResume() {
+        super.onResume()
+        // Reconcile only confirmed Android call-log rows. Opening a dial pad alone never creates history.
+        lifecycleScope.launch { callLogImporter.importNewCalls() }
+    }
 }
 
 @androidx.compose.runtime.Composable

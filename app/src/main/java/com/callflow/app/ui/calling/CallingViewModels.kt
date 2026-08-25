@@ -7,11 +7,13 @@ import com.callflow.app.core.model.DispositionInput
 import com.callflow.app.core.model.DispositionOption
 import com.callflow.app.core.model.Lead
 import com.callflow.app.core.model.Outcome
+import com.callflow.app.core.model.PermissionState
 import com.callflow.app.data.repository.OfflineCallRepository
 import com.callflow.app.domain.repository.CallRepository
 import com.callflow.app.domain.repository.LeadRepository
 import com.callflow.app.telecom.CallIntegrationManager
 import com.callflow.app.telecom.CallIntegrationState
+import com.callflow.app.telecom.PermissionManager
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -20,9 +22,11 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.time.Instant
+import java.time.DayOfWeek
+import java.time.temporal.TemporalAdjusters
 import javax.inject.Inject
 
-data class CallingUiState(val lead: Lead? = null, val integrationState: CallIntegrationState = CallIntegrationState.ManualMode, val callId: String? = null, val error: String? = null)
+data class CallingUiState(val lead: Lead? = null, val integrationState: CallIntegrationState = CallIntegrationState.ManualMode, val callLogPermission: PermissionState = PermissionState.DENIED, val callId: String? = null, val error: String? = null)
 
 @HiltViewModel
 class CallingViewModel @Inject constructor(
@@ -30,23 +34,37 @@ class CallingViewModel @Inject constructor(
     private val leads: LeadRepository,
     private val calls: CallRepository,
     private val integration: CallIntegrationManager,
+    private val permissions: PermissionManager,
 ) : ViewModel() {
     private val leadId: String = checkNotNull(savedStateHandle["leadId"])
-    private val mutable = MutableStateFlow(CallingUiState(integrationState = integration.state()))
+    private val mutable = MutableStateFlow(CallingUiState(integrationState = integration.state(), callLogPermission = permissions.callLogPermission()))
     val state: StateFlow<CallingUiState> = combine(leads.observeLead(leadId), mutable) { lead, local -> local.copy(lead = lead) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), mutable.value)
     fun roleIntent() = integration.roleRequestIntent()
     fun refreshRole() { mutable.value = mutable.value.copy(integrationState = integration.state()) }
+    fun refreshCallLogPermission() {
+        mutable.value = mutable.value.copy(callLogPermission = permissions.callLogPermission())
+    }
+    fun hasDirectCallPermission(): Boolean = permissions.callPermission() == PermissionState.GRANTED
     fun call(onStarted: (String) -> Unit) {
         val lead = state.value.lead ?: return
-        viewModelScope.launch {
-            calls.startOutgoingCall(lead).fold(onSuccess = { id ->
-                when (integration.initiateCall(lead.displayPhone)) {
-                    is Outcome.Success -> { mutable.value = mutable.value.copy(callId = id); onStarted(id) }
-                    is Outcome.Failure -> mutable.value = mutable.value.copy(error = "Could not open the phone app. The call attempt remains saved.")
-                }
-            }, onFailure = { mutable.value = mutable.value.copy(error = "Could not save this call attempt") })
+        if (lead.doNotCall) {
+            mutable.value = mutable.value.copy(error = "Call blocked: this lead is marked Do Not Call.")
+            return
         }
+        if (integration.state() != CallIntegrationState.Ready) {
+            when (integration.initiateCall(lead.displayPhone)) {
+                is Outcome.Success -> mutable.value = mutable.value.copy(error = "Call log will be added only after an actual call is made.")
+                is Outcome.Failure -> mutable.value = mutable.value.copy(error = "Could not open the phone app.")
+            }
+            return
+        }
+        viewModelScope.launch { calls.startOutgoingCall(lead).fold(onSuccess = { id ->
+            when (integration.initiateCall(lead.displayPhone)) {
+                is Outcome.Success -> { mutable.value = mutable.value.copy(callId = id); onStarted(id) }
+                is Outcome.Failure -> mutable.value = mutable.value.copy(error = "Could not start the call.")
+            }
+        }, onFailure = { mutable.value = mutable.value.copy(error = "Could not prepare this call") }) }
     }
 }
 
@@ -77,6 +95,11 @@ class DispositionViewModel @Inject constructor(
     fun note(value: String) { if (value.length <= 500) mutable.value = mutable.value.copy(note = value, error = null) }
     fun addSuggestion(value: String) { note(listOf(state.value.note, value).filter { it.isNotBlank() }.joinToString(" · ")) }
     fun schedule(secondsFromNow: Long) { mutable.value = mutable.value.copy(followUpAt = Instant.now().plusSeconds(secondsFromNow)) }
+    fun scheduleNextMonday() {
+        val next = java.time.ZonedDateTime.now().with(TemporalAdjusters.next(DayOfWeek.MONDAY)).withHour(10).withMinute(0).withSecond(0).withNano(0)
+        mutable.value = mutable.value.copy(followUpAt = next.toInstant(), error = null)
+    }
+    fun scheduleAt(value: Instant) { mutable.value = mutable.value.copy(followUpAt = value, error = null) }
     fun save(onSaved: () -> Unit) {
         val current = state.value
         val selected = current.selected ?: return mutable.updateError("Choose a call result")

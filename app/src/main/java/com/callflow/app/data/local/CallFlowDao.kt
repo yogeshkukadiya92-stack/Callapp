@@ -43,6 +43,9 @@ interface CallFlowDao {
     suspend fun insertCall(call: CallEntity)
 
     @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertImportedCall(call: CallEntity): Long
+
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertRemoteCalls(calls: List<CallEntity>)
 
     @Insert(onConflict = OnConflictStrategy.ABORT)
@@ -90,6 +93,9 @@ interface CallFlowDao {
     @Query("UPDATE leads SET stageId = :stageId, nextFollowUpAt = :followUpAt, updatedAt = :updatedAt, updatedBy = :updatedBy, version = version + 1 WHERE id = :leadId")
     suspend fun updateLeadAfterDisposition(leadId: String, stageId: String, followUpAt: Long?, updatedAt: Long, updatedBy: String)
 
+    @Query("UPDATE leads SET doNotCall = 1, updatedAt = :updatedAt, updatedBy = :updatedBy, version = version + 1 WHERE id = :leadId")
+    suspend fun markLeadDoNotCall(leadId: String, updatedAt: Long, updatedBy: String)
+
     @Query("SELECT * FROM dispositions WHERE active = 1 ORDER BY sortOrder")
     fun observeDispositions(): Flow<List<DispositionEntity>>
 
@@ -102,6 +108,9 @@ interface CallFlowDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertAppConfiguration(values: List<AppConfigurationEntity>)
 
+    @Query("SELECT * FROM app_configuration ORDER BY updatedAt DESC")
+    fun observeAppConfiguration(): Flow<List<AppConfigurationEntity>>
+
     @Insert(onConflict = OnConflictStrategy.ABORT)
     suspend fun insertSyncEvent(event: SyncEventEntity)
 
@@ -110,6 +119,14 @@ interface CallFlowDao {
         insertCall(call)
         insertCallEvent(lifecycle)
         insertSyncEvent(event)
+    }
+
+    @Transaction
+    suspend fun insertImportedCallWithOutbox(call: CallEntity, lifecycle: List<CallEventEntity>, event: SyncEventEntity): Boolean {
+        if (insertImportedCall(call) == -1L) return false
+        lifecycle.forEach { insertCallEvent(it) }
+        insertSyncEvent(event)
+        return true
     }
 
     @Query("SELECT * FROM call_events WHERE callId = :callId ORDER BY occurredAt")
@@ -136,7 +153,7 @@ interface CallFlowDao {
     @Query("DELETE FROM leads WHERE id = :id")
     suspend fun deleteLead(id: String)
 
-    @Query("DELETE FROM leads WHERE serverId IS NULL AND updatedBy = 'local-user'")
+    @Query("DELETE FROM leads WHERE serverId IS NULL OR lower(name) LIKE '%demo%' OR (name = 'Ramesh Patel' AND normalizedPhone = '+919876543210') OR (name = 'Anita Sharma' AND normalizedPhone = '+919812345678')")
     suspend fun deleteDemoLeads()
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
@@ -151,6 +168,15 @@ interface CallFlowDao {
     @Query("SELECT * FROM follow_ups ORDER BY scheduledAt")
     fun observeAllFollowUps(): Flow<List<FollowUpEntity>>
 
+    @Query("SELECT * FROM follow_ups WHERE status = 'PENDING' AND scheduledAt <= :until ORDER BY scheduledAt LIMIT 25")
+    suspend fun dueFollowUps(until: Long): List<FollowUpEntity>
+
     @Query("UPDATE follow_ups SET status = 'COMPLETED', updatedAt = :at, version = version + 1, syncStatus = 'PENDING' WHERE id = :id")
     suspend fun completeFollowUp(id: String, at: Long)
+
+    @Query("UPDATE follow_ups SET scheduledAt = :scheduledAt, note = :note, status = 'PENDING', updatedAt = :at, version = version + 1, syncStatus = 'PENDING' WHERE id = :id")
+    suspend fun updateFollowUp(id: String, scheduledAt: Long, note: String?, at: Long)
+
+    @Query("UPDATE follow_ups SET status = 'CANCELLED', updatedAt = :at, version = version + 1, syncStatus = 'PENDING' WHERE id = :id")
+    suspend fun cancelFollowUp(id: String, at: Long)
 }

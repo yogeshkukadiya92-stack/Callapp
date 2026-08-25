@@ -7,7 +7,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
     entities = [LeadEntity::class, CallEntity::class, CallEventEntity::class, NoteEntity::class, FollowUpEntity::class, SyncEventEntity::class, AppConfigurationEntity::class, LeadStageEntity::class, DispositionEntity::class, CallDispositionEntity::class, SyncConflictEntity::class],
-    version = 3,
+    version = 4,
     exportSchema = true,
 )
 abstract class CallFlowDatabase : RoomDatabase() {
@@ -30,6 +30,12 @@ abstract class CallFlowDatabase : RoomDatabase() {
                 db.execSQL("CREATE INDEX IF NOT EXISTS `index_sync_conflicts_entityId` ON `sync_conflicts` (`entityId`)")
                 db.execSQL("CREATE INDEX IF NOT EXISTS `index_sync_conflicts_status` ON `sync_conflicts` (`status`)")
                 db.execSQL("CREATE INDEX IF NOT EXISTS `index_sync_conflicts_createdAt` ON `sync_conflicts` (`createdAt`)")
+            }
+        }
+        val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `leads` ADD COLUMN `doNotCall` INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE `leads` ADD COLUMN `duplicateCount` INTEGER NOT NULL DEFAULT 1")
             }
         }
     }

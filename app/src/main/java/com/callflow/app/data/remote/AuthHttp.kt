@@ -49,8 +49,13 @@ class RefreshTokenAuthenticator @Inject constructor(private val refreshApi: Refr
                 if (failure is HttpException && failure.code() in setOf(400, 401, 403)) runBlocking { sessions.clear() }
                 null
             } else {
-                runBlocking { sessions.save(current.copy(accessToken = refreshed.accessToken, refreshToken = refreshed.refreshToken)) }
-                response.request.newBuilder().header("Authorization", "Bearer ${refreshed.accessToken}").build()
+                val saved = runBlocking {
+                    sessions.saveIfCurrent(
+                        expectedRefreshToken = current.refreshToken,
+                        value = current.copy(accessToken = refreshed.accessToken, refreshToken = refreshed.refreshToken),
+                    )
+                }
+                if (saved) response.request.newBuilder().header("Authorization", "Bearer ${refreshed.accessToken}").build() else null
             }
         }
     }

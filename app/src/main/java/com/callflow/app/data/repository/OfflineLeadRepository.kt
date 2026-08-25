@@ -23,9 +23,9 @@ class OfflineLeadRepository @Inject constructor(
     private val clock: DateTimeProvider,
     private val phoneNumberNormalizer: PhoneNumberNormalizer,
 ) : LeadRepository {
-    override fun observeCallingQueue(): Flow<List<Lead>> = dao.observeCallingQueue().map { rows -> rows.map(LeadEntity::toDomain) }
-    override fun search(query: String): Flow<List<Lead>> = dao.searchLeads(query.trim(), query.filter(Char::isDigit)).map { rows -> rows.map(LeadEntity::toDomain) }
-    override fun observeLead(id: String): Flow<Lead?> = dao.observeLead(id).map { it?.toDomain() }
+    override fun observeCallingQueue(): Flow<List<Lead>> = dao.observeCallingQueue().map { rows -> rows.assignedOnly().map(LeadEntity::toDomain) }
+    override fun search(query: String): Flow<List<Lead>> = dao.searchLeads(query.trim(), query.filter(Char::isDigit)).map { rows -> rows.assignedOnly().map(LeadEntity::toDomain) }
+    override fun observeLead(id: String): Flow<Lead?> = dao.observeLead(id).map { it?.takeIf { row -> BuildConfig.USE_FAKE_BACKEND || row.serverId != null }?.toDomain() }
 
     override fun observeTimeline(leadId: String): Flow<List<TimelineItem>> = combine(
         dao.observeCalls(leadId), dao.observeNotes(leadId), dao.observeFollowUps(leadId),
@@ -38,6 +38,7 @@ class OfflineLeadRepository @Inject constructor(
     }
 
     override suspend fun createLead(value: NewLead): CreateLeadResult {
+        if (!BuildConfig.USE_FAKE_BACKEND) return CreateLeadResult.Invalid("Leads must be assigned from the dashboard")
         if (value.name.isBlank()) return CreateLeadResult.Invalid("Name is required")
         val normalized = phoneNumberNormalizer.normalize(value.phone) ?: return CreateLeadResult.Invalid("Enter a valid phone number")
         dao.findByPhone(normalized).firstOrNull()?.let { return CreateLeadResult.Duplicate(it.toDomain()) }
@@ -59,4 +60,9 @@ class OfflineLeadRepository @Inject constructor(
     }
 }
 
-private fun LeadEntity.toDomain() = Lead(id, serverId, name, company, city, normalizedPhone, displayPhone, stageId, assignedUserId, campaignId, nextFollowUpAt?.let(Instant::ofEpochMilli), Instant.ofEpochMilli(updatedAt), version)
+private fun LeadEntity.toDomain() = Lead(id, serverId, name, company, city, normalizedPhone, displayPhone, stageId, assignedUserId, campaignId, nextFollowUpAt?.let(Instant::ofEpochMilli), Instant.ofEpochMilli(updatedAt), version, doNotCall, duplicateCount)
+private fun List<LeadEntity>.assignedOnly() = if (BuildConfig.USE_FAKE_BACKEND) this else filter { it.serverId != null && !it.isKnownDemoLead() }
+private fun LeadEntity.isKnownDemoLead() =
+    name.contains("demo", ignoreCase = true) ||
+    (name == "Ramesh Patel" && normalizedPhone == "+919876543210") ||
+        (name == "Anita Sharma" && normalizedPhone == "+919812345678")

@@ -15,6 +15,7 @@ import com.callflow.app.data.session.SyncCursorStore
 import com.callflow.app.sync.DeltaSyncApplier
 import com.callflow.app.data.session.SyncHealthStore
 import com.callflow.app.core.model.SyncHealth
+import com.callflow.app.data.session.SessionTokenStore
 
 class OutboxSyncRepository @Inject constructor(
     private val database: CallFlowDatabase,
@@ -24,6 +25,7 @@ class OutboxSyncRepository @Inject constructor(
     private val cursors: SyncCursorStore,
     private val deltaApplier: DeltaSyncApplier,
     private val healthStore: SyncHealthStore,
+    private val sessions: SessionTokenStore,
 ) : SyncRepository {
     override fun observePendingCount(): Flow<Int> = dao.observePendingSyncCount()
     override fun observeConflictCount(): Flow<Int> = dao.observeOpenConflictCount()
@@ -42,11 +44,12 @@ class OutboxSyncRepository @Inject constructor(
             val cursor = cursors.current()
             if (events.isNotEmpty()) {
                 database.withTransaction { dao.markSyncing(events.map { it.id }, clock.now().toEpochMilli()) }
-                val response = api.batchSync(BatchSyncRequest("local-install", cursor, events.map { SyncEventDto(it.eventUuid, it.entityType, it.entityId, it.operation, mapOf("raw" to it.payload)) }))
+                val deviceId = sessions.current()?.deviceId ?: error("Registered device session is required for sync")
+                val response = api.batchSync(BatchSyncRequest(deviceId, cursor, events.map { SyncEventDto(it.eventUuid, it.entityType, it.entityId, it.operation, mapOf("raw" to it.payload)) }))
                 if (response.acceptedEventIds.isNotEmpty()) dao.markSynced(response.acceptedEventIds)
                 if (response.failedEventIds.isNotEmpty()) dao.markSyncFailed(response.failedEventIds, "Server rejected this event")
             }
-            deltaApplier.apply(api.changes(null))
+            deltaApplier.apply(api.changes(cursor))
             healthStore.succeeded(clock.now().toEpochMilli())
         } catch (error: Exception) {
             if (events.isNotEmpty()) dao.markSyncFailed(events.map { it.eventUuid }, error.message?.take(300) ?: "Sync failed")

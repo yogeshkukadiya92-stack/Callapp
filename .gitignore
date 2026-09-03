@@ -6,3 +6,12 @@ local.properties
 *.iml
 captures/
 .DS_Store
+
+# Local QA and release artifacts
+*.apk
+bugreport-*.zip
+callflow-*-emulator.png
+
+# Separate dashboard checkout and local compatibility server
+CFLdashboard-source/
+cfl-dashboard-server/

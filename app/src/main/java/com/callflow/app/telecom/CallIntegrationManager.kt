@@ -16,11 +16,13 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 
 sealed interface CallIntegrationState { data object ManualMode : CallIntegrationState; data object RoleRequired : CallIntegrationState; data object Ready : CallIntegrationState }
+data class CallingAccount(val id: String, val label: String)
 
 interface CallIntegrationManager {
     fun state(): CallIntegrationState
     fun roleRequestIntent(): Intent?
-    fun initiateCall(phoneNumber: String): Outcome<Unit>
+    fun callingAccounts(): List<CallingAccount>
+    fun initiateCall(phoneNumber: String, accountId: String? = null): Outcome<Unit>
 }
 
 class SafeDialerCallIntegrationManager @Inject constructor(@ApplicationContext private val context: Context) : CallIntegrationManager {
@@ -32,11 +34,21 @@ class SafeDialerCallIntegrationManager @Inject constructor(@ApplicationContext p
     override fun roleRequestIntent(): Intent? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
         context.getSystemService(RoleManager::class.java).takeIf { it.isRoleAvailable(RoleManager.ROLE_DIALER) }?.createRequestRoleIntent(RoleManager.ROLE_DIALER)
     } else null
-    override fun initiateCall(phoneNumber: String): Outcome<Unit> {
+    override fun callingAccounts(): List<CallingAccount> = runCatching {
+        val telecom = context.getSystemService(TelecomManager::class.java)
+        telecom.callCapablePhoneAccounts.mapIndexed { index, handle -> CallingAccount(handle.id, telecom.getPhoneAccount(handle)?.label?.toString()?.takeIf(String::isNotBlank) ?: "SIM ${index + 1}") }
+    }.getOrDefault(emptyList())
+
+    override fun initiateCall(phoneNumber: String, accountId: String?): Outcome<Unit> {
         val uri = Uri.parse("tel:${Uri.encode(phoneNumber)}")
         if (state() == CallIntegrationState.Ready && ContextCompat.checkSelfPermission(context, Manifest.permission.CALL_PHONE) != PackageManager.PERMISSION_GRANTED) return Outcome.Failure(AppError.PermissionDenied)
         return try {
-            if (state() == CallIntegrationState.Ready) context.getSystemService(TelecomManager::class.java).placeCall(uri, Bundle())
+            if (state() == CallIntegrationState.Ready) {
+                val telecom = context.getSystemService(TelecomManager::class.java)
+                val extras = Bundle()
+                accountId?.let { selected -> telecom.callCapablePhoneAccounts.firstOrNull { it.id == selected }?.let { extras.putParcelable(TelecomManager.EXTRA_PHONE_ACCOUNT_HANDLE, it) } }
+                telecom.placeCall(uri, extras)
+            }
             else context.startActivity(Intent(Intent.ACTION_DIAL, uri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
             Outcome.Success(Unit)
         } catch (error: SecurityException) {

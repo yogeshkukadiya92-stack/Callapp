@@ -4,7 +4,7 @@ CallFlow Android connects to dashboards through one stable backend contract. CFL
 
 ## Android build configuration
 
-Development fake mode stays enabled by default. To point the app at CFLDashboard:
+Normal builds connect to `https://dashboard.coachforlife.in/api/callflow/` with fake mode disabled. To point a controlled build at another compatible dashboard:
 
 ```bash
 ./gradlew assembleDebug \

@@ -21,15 +21,17 @@ class CallFlowMigrationTest {
 
     @Test
     @Throws(IOException::class)
-    fun migratesVersion1To3WithoutDataLoss() {
+    fun migratesVersion1To6WithoutDataLoss() {
         helper.createDatabase(DATABASE_NAME, 1).apply {
             execSQL("INSERT INTO leads (id, serverId, name, company, city, normalizedPhone, displayPhone, stageId, assignedUserId, campaignId, nextFollowUpAt, updatedAt, updatedBy, version) VALUES ('lead-1', NULL, 'Migration Lead', NULL, NULL, '+919999999999', '9999999999', 'new', 'user-1', NULL, NULL, 1, 'user-1', 1)")
             close()
         }
-        helper.runMigrationsAndValidate(DATABASE_NAME, 3, true, CallFlowDatabase.MIGRATION_1_2, CallFlowDatabase.MIGRATION_2_3).use { database ->
-            database.query("SELECT name FROM leads WHERE id = 'lead-1'").use { cursor ->
+        helper.runMigrationsAndValidate(DATABASE_NAME, 6, true, CallFlowDatabase.MIGRATION_1_2, CallFlowDatabase.MIGRATION_2_3, CallFlowDatabase.MIGRATION_3_4, CallFlowDatabase.MIGRATION_4_5, CallFlowDatabase.MIGRATION_5_6).use { database ->
+            database.query("SELECT name, score, quality FROM leads WHERE id = 'lead-1'").use { cursor ->
                 check(cursor.moveToFirst())
                 check(cursor.getString(0) == "Migration Lead")
+                check(cursor.getInt(1) == 0)
+                check(cursor.isNull(2))
             }
             database.query("SELECT COUNT(*) FROM sync_conflicts").use { cursor -> check(cursor.moveToFirst() && cursor.getInt(0) == 0) }
         }

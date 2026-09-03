@@ -11,14 +11,19 @@ import com.callflow.app.core.model.DispositionOption
 import com.callflow.app.core.model.FollowUpRecord
 import com.callflow.app.core.model.SessionState
 import com.callflow.app.core.model.SyncHealth
+import com.callflow.app.core.model.LeadCallStats
 import kotlinx.coroutines.flow.Flow
 
 interface LeadRepository {
     fun observeCallingQueue(): Flow<List<Lead>>
+    fun observeAllAssignedLeads(): Flow<List<Lead>>
     fun search(query: String): Flow<List<Lead>>
     suspend fun seedIfEmpty()
     fun observeLead(id: String): Flow<Lead?>
+    suspend fun findByPhone(phone: String): Lead?
     fun observeTimeline(leadId: String): Flow<List<TimelineItem>>
+    fun observeCallStats(): Flow<Map<String, LeadCallStats>>
+    fun observeCallStats(leadId: String): Flow<LeadCallStats>
     suspend fun createLead(value: NewLead): CreateLeadResult
 }
 
@@ -36,6 +41,7 @@ interface CallRepository {
     fun observeRecentCalls(): Flow<List<CallRecord>>
     fun observeDispositions(): Flow<List<DispositionOption>>
     suspend fun saveDisposition(input: DispositionInput): Result<Unit>
+    suspend fun addCallNote(callId: String, leadId: String, body: String): Result<Unit>
 }
 
 interface FollowUpRepository {

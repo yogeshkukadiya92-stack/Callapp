@@ -4,7 +4,7 @@ import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
 
-@Entity(tableName = "leads", indices = [Index("serverId", unique = true), Index("normalizedPhone"), Index("stageId"), Index("assignedUserId"), Index("campaignId"), Index("nextFollowUpAt")])
+@Entity(tableName = "leads", indices = [Index("serverId", unique = true), Index("normalizedPhone"), Index("stageId"), Index("assignedUserId"), Index("campaignId"), Index("nextFollowUpAt"), Index("city"), Index("score"), Index("quality"), Index("updatedAt")])
 data class LeadEntity(
     @PrimaryKey val id: String,
     val serverId: String?,
@@ -22,9 +22,11 @@ data class LeadEntity(
     val version: Long,
     val doNotCall: Boolean = false,
     val duplicateCount: Int = 1,
+    val score: Int = 0,
+    val quality: String? = null,
 )
 
-@Entity(tableName = "calls", indices = [Index("leadId"), Index("employeeId"), Index("startedAt"), Index("syncStatus")])
+@Entity(tableName = "calls", indices = [Index("leadId"), Index("employeeId"), Index("startedAt"), Index("syncStatus"), Index("simSlot")])
 data class CallEntity(
     @PrimaryKey val id: String,
     val serverId: String?,
@@ -38,6 +40,9 @@ data class CallEntity(
     val endedAt: Long?,
     val failureReason: String?,
     val syncStatus: String,
+    val simSlot: Int? = null,
+    val simLabel: String? = null,
+    val phoneAccountId: String? = null,
 )
 
 @Entity(tableName = "call_events", indices = [Index("callId"), Index("occurredAt")])
@@ -66,3 +71,20 @@ data class CallDispositionEntity(@PrimaryKey val id: String, val callId: String,
 
 @Entity(tableName = "sync_conflicts", indices = [Index("entityType"), Index("entityId"), Index("status"), Index("createdAt")])
 data class SyncConflictEntity(@PrimaryKey val id: String, val entityType: String, val entityId: String, val localVersion: Long, val serverVersion: Long, val localPayload: String, val serverPayload: String, val createdAt: Long, val status: String)
+
+data class LeadCallSummary(
+    val leadId: String,
+    val attempts: Int,
+    val connected: Int,
+    val missed: Int,
+    val notConnected: Int,
+    val talkTimeSeconds: Long,
+    val firstContactedAt: Long?,
+    val lastContactedAt: Long?,
+)
+
+data class SyncQueueBucket(
+    val status: String,
+    val entityType: String,
+    val count: Int,
+)

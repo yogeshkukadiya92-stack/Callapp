@@ -18,6 +18,9 @@ data class CallRecord(
     val endedAt: Instant?,
     val failureReason: String?,
     val syncStatus: SyncStatus,
+    val simSlot: Int? = null,
+    val simLabel: String? = null,
+    val phoneAccountId: String? = null,
 )
 
 val CallRecord.status: CallStatus
@@ -70,10 +73,23 @@ data class Lead(
     val version: Long,
     val doNotCall: Boolean = false,
     val duplicateCount: Int = 1,
+    val score: Int = 0,
+    val quality: String? = null,
 )
 
 enum class QueuePriority { OVERDUE, DUE_SOON, HOT, NEW, STANDARD }
 data class PriorityLead(val lead: Lead, val priority: QueuePriority)
+
+data class LeadCallStats(
+    val leadId: String,
+    val attempts: Int = 0,
+    val connected: Int = 0,
+    val missed: Int = 0,
+    val notConnected: Int = 0,
+    val talkTimeSeconds: Long = 0,
+    val firstContactedAt: Instant? = null,
+    val lastContactedAt: Instant? = null,
+)
 
 data class DailyMetrics(
     val calls: Int = 0,

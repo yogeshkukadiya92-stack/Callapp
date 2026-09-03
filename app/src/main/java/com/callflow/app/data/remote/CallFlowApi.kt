@@ -55,9 +55,11 @@ data class LeadDeltaDto(
     val version: Long,
     val doNotCall: Boolean = false,
     val duplicateCount: Int = 1,
+    val score: Int = 0,
+    val quality: String? = null,
 )
 @JsonClass(generateAdapter = true)
-data class CallDeltaDto(val id: String, val serverId: String?, val leadId: String?, val employeeId: String, val campaignId: String?, val normalizedPhone: String, val direction: String, val startedAt: Long, val answeredAt: Long?, val endedAt: Long?, val failureReason: String?)
+data class CallDeltaDto(val id: String, val serverId: String?, val leadId: String?, val employeeId: String, val campaignId: String?, val normalizedPhone: String, val direction: String, val startedAt: Long, val answeredAt: Long?, val endedAt: Long?, val failureReason: String?, val simSlot: Int? = null, val simLabel: String? = null, val phoneAccountId: String? = null)
 @JsonClass(generateAdapter = true)
 data class CallEventDeltaDto(val id: String, val callId: String, val type: String, val occurredAt: Long)
 @JsonClass(generateAdapter = true)

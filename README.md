@@ -13,7 +13,7 @@ Requirements: JDK 17+, Android SDK 35, and Android Studio Ladybug or newer.
 ./gradlew assembleDebug
 ```
 
-Set the SDK path in an untracked `local.properties`. The application ID can be changed with `callflow.applicationId=com.yourcompany.callflow` in `gradle.properties`. The API base URL, dashboard connector id, and fake-backend switch are non-secret Gradle properties; production CI should inject them per environment.
+Set the SDK path in an untracked `local.properties`. The application ID can be changed with `callflow.applicationId=com.yourcompany.callflow` in `gradle.properties`. Normal builds use the live Coach For Life endpoint with demo mode disabled. The API base URL, dashboard connector id, and fake-backend switch remain overridable non-secret Gradle properties for controlled environments.
 
 ```bash
 ./gradlew assembleDebug \
@@ -38,7 +38,7 @@ python3 cfl-dashboard-server/server.py --host 0.0.0.0 --port 8010
 
 Room is the UI-facing source of truth. UI state is delivered by repositories as `Flow`; network changes update Room, and local mutations pair their entity write with a durable `sync_events` outbox write. Retrofit DTOs never enter UI code directly. Hilt owns bindings and makes fake/real data sources replaceable.
 
-The development fake repository seeds two local records once and only behind `LeadRepository`. Fake sync acknowledges durable outbox events through `SyncRepository`; it does not bypass Room or UI architecture. Set `USE_FAKE_BACKEND=false` and inject the environment URL/authentication interceptor for a live environment.
+The optional development fake repository seeds two local records only when a developer explicitly builds with `-Pcallflow.useFakeBackend=true`. Normal builds never accept fake login or seed demo leads. Fake sync acknowledges durable outbox events through `SyncRepository`; it does not bypass Room or UI architecture.
 
 ## Call integration
 

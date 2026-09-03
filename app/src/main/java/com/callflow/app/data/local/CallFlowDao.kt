@@ -12,6 +12,9 @@ interface CallFlowDao {
     @Query("SELECT * FROM leads ORDER BY COALESCE(nextFollowUpAt, 9223372036854775807), updatedAt DESC LIMIT :limit")
     fun observeCallingQueue(limit: Int = 50): Flow<List<LeadEntity>>
 
+    @Query("SELECT * FROM leads ORDER BY updatedAt DESC")
+    fun observeAllLeads(): Flow<List<LeadEntity>>
+
     @Query("SELECT * FROM leads WHERE name LIKE '%' || :query || '%' OR company LIKE '%' || :query || '%' OR city LIKE '%' || :query || '%' OR (:digits != '' AND normalizedPhone LIKE '%' || :digits || '%') ORDER BY updatedAt DESC LIMIT :limit")
     fun searchLeads(query: String, digits: String, limit: Int = 100): Flow<List<LeadEntity>>
 
@@ -27,8 +30,20 @@ interface CallFlowDao {
     @Query("SELECT * FROM notes WHERE leadId = :leadId ORDER BY createdAt DESC")
     fun observeNotes(leadId: String): Flow<List<NoteEntity>>
 
+    @Query("SELECT * FROM notes WHERE callId = :callId ORDER BY createdAt DESC")
+    fun observeCallNotes(callId: String): Flow<List<NoteEntity>>
+
     @Query("SELECT * FROM calls WHERE leadId = :leadId ORDER BY startedAt DESC")
     fun observeCalls(leadId: String): Flow<List<CallEntity>>
+
+    @Query("""SELECT leadId, COUNT(*) AS attempts,
+        COALESCE(SUM(CASE WHEN answeredAt IS NOT NULL THEN 1 ELSE 0 END), 0) AS connected,
+        COALESCE(SUM(CASE WHEN direction = 'INCOMING' AND answeredAt IS NULL THEN 1 ELSE 0 END), 0) AS missed,
+        COALESCE(SUM(CASE WHEN direction = 'OUTGOING' AND answeredAt IS NULL THEN 1 ELSE 0 END), 0) AS notConnected,
+        COALESCE(SUM(CASE WHEN answeredAt IS NOT NULL AND endedAt IS NOT NULL THEN MAX(0, (endedAt - answeredAt) / 1000) ELSE 0 END), 0) AS talkTimeSeconds,
+        MIN(startedAt) AS firstContactedAt, MAX(startedAt) AS lastContactedAt
+        FROM calls WHERE leadId IS NOT NULL GROUP BY leadId""")
+    fun observeLeadCallSummaries(): Flow<List<LeadCallSummary>>
 
     @Query("SELECT * FROM follow_ups WHERE leadId = :leadId ORDER BY scheduledAt DESC")
     fun observeFollowUps(leadId: String): Flow<List<FollowUpEntity>>
@@ -68,6 +83,18 @@ interface CallFlowDao {
 
     @Query("SELECT * FROM calls WHERE normalizedPhone = :phone AND direction = 'OUTGOING' AND endedAt IS NULL AND startedAt >= :since ORDER BY startedAt DESC LIMIT 2")
     suspend fun findRecentOpenCalls(phone: String, since: Long): List<CallEntity>
+
+    @Query("SELECT * FROM calls WHERE leadId IS NULL AND normalizedPhone = :phone ORDER BY startedAt")
+    suspend fun unmatchedCallsByPhone(phone: String): List<CallEntity>
+
+    @Query("UPDATE calls SET leadId = :leadId, campaignId = :campaignId, syncStatus = 'PENDING' WHERE id = :callId AND leadId IS NULL")
+    suspend fun linkCallToLead(callId: String, leadId: String, campaignId: String?)
+
+    @Query("SELECT * FROM calls WHERE normalizedPhone = :phone AND direction = :direction AND startedAt BETWEEN :from AND :to ORDER BY ABS(startedAt - :startedAt) LIMIT 1")
+    suspend fun findMatchingPlatformCall(phone: String, direction: String, startedAt: Long, from: Long, to: Long): CallEntity?
+
+    @Query("UPDATE calls SET leadId = COALESCE(leadId, :leadId), campaignId = COALESCE(campaignId, :campaignId), startedAt = :startedAt, answeredAt = :answeredAt, endedAt = :endedAt, failureReason = :failureReason, simSlot = :simSlot, simLabel = :simLabel, phoneAccountId = :phoneAccountId, syncStatus = 'PENDING' WHERE id = :id")
+    suspend fun reconcileCallFromSystemLog(id: String, leadId: String?, campaignId: String?, startedAt: Long, answeredAt: Long?, endedAt: Long, failureReason: String?, simSlot: Int?, simLabel: String?, phoneAccountId: String?)
 
     @Insert(onConflict = OnConflictStrategy.ABORT)
     suspend fun insertNote(note: NoteEntity)
@@ -129,6 +156,18 @@ interface CallFlowDao {
         return true
     }
 
+    @Transaction
+    suspend fun reconcileImportedCallWithOutbox(id: String, leadId: String?, campaignId: String?, startedAt: Long, answeredAt: Long?, endedAt: Long, failureReason: String?, simSlot: Int?, simLabel: String?, phoneAccountId: String?, event: SyncEventEntity) {
+        reconcileCallFromSystemLog(id, leadId, campaignId, startedAt, answeredAt, endedAt, failureReason, simSlot, simLabel, phoneAccountId)
+        insertSyncEvent(event)
+    }
+
+    @Transaction
+    suspend fun insertNoteWithOutbox(note: NoteEntity, event: SyncEventEntity) {
+        insertNote(note)
+        insertSyncEvent(event)
+    }
+
     @Query("SELECT * FROM call_events WHERE callId = :callId ORDER BY occurredAt")
     suspend fun callEvents(callId: String): List<CallEventEntity>
 
@@ -144,7 +183,7 @@ interface CallFlowDao {
     @Query("UPDATE sync_events SET status = 'SYNCED', lastError = NULL WHERE eventUuid IN (:eventUuids)")
     suspend fun markSynced(eventUuids: List<String>)
 
-    @Query("UPDATE sync_events SET status = 'FAILED', lastError = :error WHERE eventUuid IN (:eventUuids)")
+    @Query("UPDATE sync_events SET status = 'FAILED', lastError = :error WHERE eventUuid IN (:eventUuids) AND status != 'SYNCED'")
     suspend fun markSyncFailed(eventUuids: List<String>, error: String)
 
     @Query("SELECT COUNT(*) FROM sync_events WHERE entityType = :entityType AND entityId = :entityId AND status IN ('PENDING', 'SYNCING', 'FAILED')")
@@ -164,6 +203,9 @@ interface CallFlowDao {
 
     @Query("SELECT COUNT(*) FROM sync_events WHERE status IN ('PENDING', 'FAILED')")
     fun observePendingSyncCount(): Flow<Int>
+
+    @Query("SELECT status, entityType, COUNT(*) AS count FROM sync_events WHERE status != 'SYNCED' GROUP BY status, entityType ORDER BY status, entityType")
+    fun observeSyncQueueBreakdown(): Flow<List<SyncQueueBucket>>
 
     @Query("SELECT * FROM follow_ups ORDER BY scheduledAt")
     fun observeAllFollowUps(): Flow<List<FollowUpEntity>>

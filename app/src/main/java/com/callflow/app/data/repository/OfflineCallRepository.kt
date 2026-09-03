@@ -47,6 +47,19 @@ class OfflineCallRepository @Inject constructor(
     override fun observeRecentCalls(): Flow<List<CallRecord>> = dao.observeRecentCalls().map { rows -> rows.map(CallEntity::toDomain) }
     override fun observeDispositions(): Flow<List<DispositionOption>> = dao.observeDispositions().map { rows -> rows.map(DispositionEntity::toDomain) }
 
+    override suspend fun addCallNote(callId: String, leadId: String, body: String): Result<Unit> = runCatching {
+        val cleanBody = body.trim()
+        require(cleanBody.isNotEmpty()) { "Enter a note or select a tag" }
+        require(cleanBody.length <= 500) { "Note must be 500 characters or less" }
+        val now = clock.now().toEpochMilli()
+        val noteId = UUID.randomUUID().toString()
+        val safeBody = cleanBody.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n")
+        dao.insertNoteWithOutbox(
+            NoteEntity(noteId, leadId, callId, cleanBody, now, "local-user", "local-install", SyncStatus.PENDING.name),
+            outbox("NOTE", noteId, "CREATE", "{\"leadId\":\"$leadId\",\"callId\":\"$callId\",\"body\":\"$safeBody\",\"createdAt\":$now}", now),
+        )
+    }
+
     override suspend fun saveDisposition(input: DispositionInput): Result<Unit> = runCatching {
         val validation = DispositionValidator.validate(input)
         require(validation is DispositionValidation.Valid) { (validation as DispositionValidation.Invalid).message }
@@ -57,7 +70,14 @@ class OfflineCallRepository @Inject constructor(
             dao.insertCallDisposition(CallDispositionEntity(dispositionId, input.callId, input.leadId, input.disposition.id, now, "local-user", SyncStatus.PENDING.name))
             val noteId = if (input.note.isNotBlank()) UUID.randomUUID().toString() else null
             noteId?.let { dao.insertNote(NoteEntity(it, input.leadId, input.callId, input.note.trim(), now, "local-user", "local-install", SyncStatus.PENDING.name)) }
-            input.followUpAt?.let { at -> dao.insertFollowUp(FollowUpEntity(checkNotNull(followUpId), input.leadId, at.toEpochMilli(), input.note.trim().ifBlank { null }, 1, "local-user", "CALL", "PENDING", now, now, 1, SyncStatus.PENDING.name)) }
+            input.followUpAt?.let { at ->
+                val followUpType = when (input.disposition.code) {
+                    "GENERATE_MEETING" -> "MEETING"
+                    "ONLINE_INTRO", "NEXT_TIME_ATTEND" -> "INTRO"
+                    else -> "CALL"
+                }
+                dao.insertFollowUp(FollowUpEntity(checkNotNull(followUpId), input.leadId, at.toEpochMilli(), input.note.trim().ifBlank { null }, 1, "local-user", followUpType, "PENDING", now, now, 1, SyncStatus.PENDING.name))
+            }
             dao.updateLeadAfterDisposition(input.leadId, input.disposition.targetStageId ?: input.disposition.code.lowercase(), input.followUpAt?.toEpochMilli(), now, "local-user")
             if (input.disposition.code.equals("WRONG_NUMBER", ignoreCase = true)) dao.markLeadDoNotCall(input.leadId, now, "local-user")
             val safeNote = input.note.trim().replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n")
@@ -71,11 +91,18 @@ class OfflineCallRepository @Inject constructor(
 
     suspend fun seedDispositionsIfEmpty() {
         val defaults = listOf(
-            option("hot", "HOT", "Hot", 0, false, false, "hot"), option("interested", "INTERESTED", "Interested", 1, false, false, "interested"),
-            option("callback", "CALLBACK_REQUESTED", "Callback requested", 2, false, true, "follow_up"), option("follow_up", "FOLLOW_UP", "Follow-up", 3, false, true, "follow_up"), option("info_sent", "INFORMATION_SENT", "Information sent", 4, false, false, "contacted"),
-            option("not_interested", "NOT_INTERESTED", "Not interested", 5, true, false, "lost"), option("no_answer", "NO_ANSWER", "No answer", 6, false, false, null),
-            option("busy", "BUSY", "Busy", 7, false, true, null), option("wrong_number", "WRONG_NUMBER", "Wrong number", 8, true, false, "lost"),
-            option("converted", "CONVERTED", "Converted", 9, false, false, "won"), option("custom", "CUSTOM", "Custom outcome", 10, true, false, null),
+            option("warm", "WARM", "Warm", 0, false, false, "qualified"),
+            option("invite_intro", "INVITE_INTRO", "Invite intro", 1, false, false, "contacted"),
+            option("online_intro", "ONLINE_INTRO", "Online intro", 2, false, true, "contacted"),
+            option("next_time_attend", "NEXT_TIME_ATTEND", "Next time attend", 3, false, true, "contacted"),
+            option("intro_attended", "INTRO_ATTENDED", "Intro attended", 4, false, false, "qualified"),
+            option("not_eligible", "NOT_ELIGIBLE", "Not eligible", 5, true, false, "lost"),
+            option("generate_meeting", "GENERATE_MEETING", "Generate meeting", 6, false, true, "contacted"),
+            option("hot", "HOT", "Hot", 10, false, false, "hot"), option("interested", "INTERESTED", "Interested", 11, false, false, "interested"),
+            option("callback", "CALLBACK_REQUESTED", "Callback requested", 12, false, true, "follow_up"), option("follow_up", "FOLLOW_UP", "Follow-up", 13, false, true, "follow_up"), option("info_sent", "INFORMATION_SENT", "Information sent", 14, false, false, "contacted"),
+            option("not_interested", "NOT_INTERESTED", "Not interested", 15, true, false, "lost"), option("no_answer", "NO_ANSWER", "No answer", 16, false, false, null),
+            option("busy", "BUSY", "Busy", 17, false, true, null), option("wrong_number", "WRONG_NUMBER", "Wrong number", 18, true, false, "lost"),
+            option("converted", "CONVERTED", "Converted", 19, false, false, "won"), option("custom", "CUSTOM", "Custom outcome", 20, true, false, null),
         )
         val existingIds = dao.observeDispositions().first().map(DispositionEntity::id).toSet()
         dao.upsertDispositions(defaults.filterNot { it.id in existingIds })
@@ -88,5 +115,5 @@ class OfflineCallRepository @Inject constructor(
     }
 }
 
-private fun CallEntity.toDomain() = CallRecord(id, leadId, normalizedPhone, CallDirection.valueOf(direction), Instant.ofEpochMilli(startedAt), answeredAt?.let(Instant::ofEpochMilli), endedAt?.let(Instant::ofEpochMilli), failureReason, SyncStatus.valueOf(syncStatus))
+private fun CallEntity.toDomain() = CallRecord(id, leadId, normalizedPhone, CallDirection.valueOf(direction), Instant.ofEpochMilli(startedAt), answeredAt?.let(Instant::ofEpochMilli), endedAt?.let(Instant::ofEpochMilli), failureReason, SyncStatus.valueOf(syncStatus), simSlot, simLabel, phoneAccountId)
 private fun DispositionEntity.toDomain() = DispositionOption(id, code, name, requiresNote, requiresFollowUp, targetStageId)

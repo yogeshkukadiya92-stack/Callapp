@@ -14,14 +14,14 @@ android {
         applicationId = providers.gradleProperty("callflow.applicationId").orElse("com.callflow.app").get()
         minSdk = 26
         targetSdk = 35
-        versionCode = 14
-        versionName = "1.10.0"
+        versionCode = 16
+        versionName = "1.11.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         testInstrumentationRunnerArguments["clearPackageData"] = "true"
         vectorDrawables.useSupportLibrary = true
-        val apiBaseUrl = providers.gradleProperty("callflow.apiBaseUrl").orElse("https://api.invalid/").get()
+        val apiBaseUrl = providers.gradleProperty("callflow.apiBaseUrl").orElse("https://dashboard.coachforlife.in/api/callflow/").get()
         val dashboardConnectorId = providers.gradleProperty("callflow.dashboardConnectorId").orElse("cfl-dashboard").get()
-        val useFakeBackend = providers.gradleProperty("callflow.useFakeBackend").orElse("true").get()
+        val useFakeBackend = providers.gradleProperty("callflow.useFakeBackend").orElse("false").get()
         buildConfigField("String", "API_BASE_URL", "\"$apiBaseUrl\"")
         buildConfigField("String", "DASHBOARD_CONNECTOR_ID", "\"$dashboardConnectorId\"")
         buildConfigField("boolean", "USE_FAKE_BACKEND", useFakeBackend)

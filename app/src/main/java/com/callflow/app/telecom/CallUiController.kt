@@ -8,6 +8,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import javax.inject.Inject
 import javax.inject.Singleton
+import android.os.Handler
+import android.os.Looper
 
 enum class PlatformCallState { RINGING, DIALING, ACTIVE, HOLDING, DISCONNECTED }
 
@@ -19,6 +21,9 @@ data class InCallUiState(
     val state: PlatformCallState = PlatformCallState.DISCONNECTED,
     val muted: Boolean = false,
     val speaker: Boolean = false,
+    val keypadVisible: Boolean = false,
+    val canHold: Boolean = false,
+    val connectedAtMillis: Long? = null,
 )
 
 @Singleton
@@ -27,6 +32,7 @@ class CallUiController @Inject constructor() {
     val state: StateFlow<InCallUiState> = mutableState.asStateFlow()
     private var call: Call? = null
     private var service: InCallService? = null
+    private val mainHandler = Handler(Looper.getMainLooper())
 
     private val callback = object : Call.Callback() {
         override fun onStateChanged(call: Call, state: Int) = publish(call, state)
@@ -35,10 +41,16 @@ class CallUiController @Inject constructor() {
 
     fun attachService(value: InCallService) { service = value }
     fun detachService(value: InCallService) { if (service === value) service = null }
+    fun setMatchedLeadName(phoneNumber: String, name: String?) {
+        if (!name.isNullOrBlank() && mutableState.value.phoneNumber == phoneNumber && mutableState.value.displayName.isNullOrBlank()) {
+            mutableState.value = mutableState.value.copy(displayName = name)
+        }
+    }
 
     fun attachCall(value: Call) {
         call?.unregisterCallback(callback)
         call = value
+        mutableState.value = InCallUiState(muted = mutableState.value.muted, speaker = mutableState.value.speaker)
         value.registerCallback(callback)
         publish(value, currentState(value))
     }
@@ -51,7 +63,13 @@ class CallUiController @Inject constructor() {
     fun answer() { call?.answer(VideoProfile.STATE_AUDIO_ONLY) }
     fun reject() { call?.reject(false, null) }
     fun disconnect() { call?.disconnect() }
-    fun toggleHold() { call?.let { if (currentState(it) == Call.STATE_HOLDING) it.unhold() else it.hold() } }
+    fun toggleHold() { call?.takeIf { mutableState.value.canHold }?.let { if (currentState(it) == Call.STATE_HOLDING) it.unhold() else it.hold() } }
+    fun toggleKeypad() { mutableState.value = mutableState.value.copy(keypadVisible = !mutableState.value.keypadVisible) }
+    fun sendDtmf(digit: Char) {
+        if (digit !in "0123456789*#") return
+        call?.playDtmfTone(digit)
+        mainHandler.postDelayed({ call?.stopDtmfTone() }, 160)
+    }
     fun toggleMute() {
         val next = !mutableState.value.muted
         service?.setMuted(next)
@@ -74,7 +92,22 @@ class CallUiController @Inject constructor() {
             Call.STATE_HOLDING -> PlatformCallState.HOLDING
             else -> PlatformCallState.DISCONNECTED
         }
-        mutableState.value = mutableState.value.copy(hasCall = state != PlatformCallState.DISCONNECTED, phoneNumber = details.handle?.schemeSpecificPart.orEmpty(), displayName = details.callerDisplayName?.toString(), incoming = incoming, state = state)
+        val previous = mutableState.value
+        val currentPhone = details.handle?.schemeSpecificPart.orEmpty()
+        val connectedAt = when {
+            state == PlatformCallState.ACTIVE && previous.connectedAtMillis == null -> System.currentTimeMillis()
+            state == PlatformCallState.DISCONNECTED -> null
+            else -> previous.connectedAtMillis
+        }
+        mutableState.value = previous.copy(
+            hasCall = state != PlatformCallState.DISCONNECTED,
+            phoneNumber = currentPhone,
+            displayName = details.callerDisplayName?.toString()?.takeIf(String::isNotBlank) ?: previous.displayName.takeIf { previous.phoneNumber == currentPhone },
+            incoming = incoming,
+            state = state,
+            canHold = details.callCapabilities and Call.Details.CAPABILITY_HOLD != 0 || state == PlatformCallState.HOLDING,
+            connectedAtMillis = connectedAt,
+        )
     }
 
     @Suppress("DEPRECATION")

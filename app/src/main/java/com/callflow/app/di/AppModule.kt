@@ -68,6 +68,8 @@ object AppProviders {
             .addMigrations(CallFlowDatabase.MIGRATION_1_2)
             .addMigrations(CallFlowDatabase.MIGRATION_2_3)
             .addMigrations(CallFlowDatabase.MIGRATION_3_4)
+            .addMigrations(CallFlowDatabase.MIGRATION_4_5)
+            .addMigrations(CallFlowDatabase.MIGRATION_5_6)
             .build()
     @Provides fun dao(database: CallFlowDatabase): CallFlowDao = database.dao()
     @Provides @Singleton @Named("rawHttp") fun rawHttp(connector: DashboardConnectorInterceptor): OkHttpClient =

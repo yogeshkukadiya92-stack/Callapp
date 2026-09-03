@@ -7,7 +7,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
     entities = [LeadEntity::class, CallEntity::class, CallEventEntity::class, NoteEntity::class, FollowUpEntity::class, SyncEventEntity::class, AppConfigurationEntity::class, LeadStageEntity::class, DispositionEntity::class, CallDispositionEntity::class, SyncConflictEntity::class],
-    version = 4,
+    version = 6,
     exportSchema = true,
 )
 abstract class CallFlowDatabase : RoomDatabase() {
@@ -36,6 +36,24 @@ abstract class CallFlowDatabase : RoomDatabase() {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE `leads` ADD COLUMN `doNotCall` INTEGER NOT NULL DEFAULT 0")
                 db.execSQL("ALTER TABLE `leads` ADD COLUMN `duplicateCount` INTEGER NOT NULL DEFAULT 1")
+            }
+        }
+        val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `leads` ADD COLUMN `score` INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE `leads` ADD COLUMN `quality` TEXT DEFAULT NULL")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_leads_city` ON `leads` (`city`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_leads_score` ON `leads` (`score`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_leads_quality` ON `leads` (`quality`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_leads_updatedAt` ON `leads` (`updatedAt`)")
+            }
+        }
+        val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `calls` ADD COLUMN `simSlot` INTEGER DEFAULT NULL")
+                db.execSQL("ALTER TABLE `calls` ADD COLUMN `simLabel` TEXT DEFAULT NULL")
+                db.execSQL("ALTER TABLE `calls` ADD COLUMN `phoneAccountId` TEXT DEFAULT NULL")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_calls_simSlot` ON `calls` (`simSlot`)")
             }
         }
     }

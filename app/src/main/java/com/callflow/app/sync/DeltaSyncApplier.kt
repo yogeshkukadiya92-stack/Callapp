@@ -13,6 +13,7 @@ import com.callflow.app.data.local.FollowUpEntity
 import com.callflow.app.data.local.LeadStageEntity
 import com.callflow.app.data.local.DispositionEntity
 import com.callflow.app.data.local.AppConfigurationEntity
+import com.callflow.app.data.local.SyncEventEntity
 import com.callflow.app.core.model.SyncStatus
 import com.callflow.app.data.remote.DeltaSyncResponse
 import com.callflow.app.data.remote.LeadDeltaDto
@@ -37,7 +38,11 @@ class DeltaSyncApplier @Inject constructor(private val database: CallFlowDatabas
                 else dao.deleteLead(id)
             }
             // Calls, events, and notes are append-oriented. Existing local rows are never overwritten.
-            dao.insertRemoteCalls(delta.calls.map { CallEntity(it.id, it.serverId, it.leadId, it.employeeId, it.campaignId, it.normalizedPhone, it.direction, it.startedAt, it.answeredAt, it.endedAt, it.failureReason, SyncStatus.SYNCED.name) })
+            dao.insertRemoteCalls(delta.calls.map { CallEntity(it.id, it.serverId, it.leadId, it.employeeId, it.campaignId, it.normalizedPhone, it.direction, it.startedAt, it.answeredAt, it.endedAt, it.failureReason, SyncStatus.SYNCED.name, it.simSlot, it.simLabel, it.phoneAccountId) })
+            delta.leads.map(LeadDeltaDto::normalizedPhone).distinct().forEach { phone ->
+                val matchingLeads = dao.findByPhone(phone).filter { it.serverId != null }
+                if (matchingLeads.size == 1) linkUnmatchedCalls(matchingLeads.single())
+            }
             dao.insertRemoteCallEvents(delta.callEvents.map { CallEventEntity(it.id, it.callId, it.type, it.occurredAt) })
             dao.insertRemoteNotes(delta.notes.map { NoteEntity(it.id, it.leadId, it.callId, it.body, it.createdAt, it.createdBy, it.deviceId, SyncStatus.SYNCED.name) })
             delta.followUps.forEach { remote ->
@@ -60,9 +65,31 @@ class DeltaSyncApplier @Inject constructor(private val database: CallFlowDatabas
         // Cursor advances only after every database mutation commits.
         cursors.update(delta.nextCursor)
     }
+
+    private suspend fun linkUnmatchedCalls(lead: LeadEntity) {
+        dao.unmatchedCallsByPhone(lead.normalizedPhone).forEach { call ->
+            dao.linkCallToLead(call.id, lead.id, lead.campaignId)
+            val eventId = UUID.randomUUID().toString()
+            dao.insertSyncEvent(
+                SyncEventEntity(
+                    id = eventId,
+                    eventUuid = eventId,
+                    entityType = "CALL",
+                    entityId = call.id,
+                    operation = "UPDATE",
+                    payload = "{\"callId\":\"${call.id}\",\"leadId\":\"${lead.id}\",\"campaignId\":${lead.campaignId?.let { "\"$it\"" } ?: "null"},\"reason\":\"matched_after_lead_assignment\"}",
+                    createdAt = clock.now().toEpochMilli(),
+                    attemptCount = 0,
+                    lastAttemptAt = null,
+                    status = SyncStatus.PENDING.name,
+                    lastError = null,
+                )
+            )
+        }
+    }
 }
 
-private fun LeadDeltaDto.toEntity() = LeadEntity(id, serverId, name, company, city, normalizedPhone, displayPhone, stageId, assignedUserId, campaignId, nextFollowUpAt, updatedAt, updatedBy, version, doNotCall, duplicateCount)
+private fun LeadDeltaDto.toEntity() = LeadEntity(id, serverId, name, company, city, normalizedPhone, displayPhone, stageId, assignedUserId, campaignId, nextFollowUpAt, updatedAt, updatedBy, version, doNotCall, duplicateCount, score, quality)
 private fun com.callflow.app.data.remote.FollowUpDeltaDto.toEntity() = FollowUpEntity(id, leadId, scheduledAt, note, priority, assignedTo, type, status, createdAt, updatedAt, version, SyncStatus.SYNCED.name)
 private fun LeadEntity.diagnosticPayload() = "{\"version\":$version,\"stageId\":\"${stageId.replace("\"", "") }\",\"updatedAt\":$updatedAt}"
 private fun LeadDeltaDto.diagnosticPayload() = "{\"version\":$version,\"stageId\":\"${stageId.replace("\"", "") }\",\"updatedAt\":$updatedAt}"

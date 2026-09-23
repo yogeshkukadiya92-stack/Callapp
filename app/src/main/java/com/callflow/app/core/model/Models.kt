@@ -45,6 +45,7 @@ data class DispositionInput(
     val disposition: DispositionOption,
     val note: String,
     val followUpAt: Instant?,
+    val meetingLink: String? = null,
 )
 
 data class FollowUpRecord(
@@ -75,6 +76,17 @@ data class Lead(
     val duplicateCount: Int = 1,
     val score: Int = 0,
     val quality: String? = null,
+    val email: String? = null,
+    val interest: String? = null,
+    val state: String? = null,
+    val country: String? = null,
+    val assignedTo: String? = null,
+    val bestTime: String? = null,
+    val revenuePotential: Long = 0,
+    val createdAt: Instant? = null,
+    val tags: List<String> = emptyList(),
+    val sourceDetails: List<String> = emptyList(),
+    val workshopsAttended: List<String> = emptyList(),
 )
 
 enum class QueuePriority { OVERDUE, DUE_SOON, HOT, NEW, STANDARD }
@@ -112,6 +124,7 @@ data class TimelineItem(
     val occurredAt: Instant,
     val title: String,
     val detail: String?,
+    val actor: String? = null,
 )
 
 data class NewLead(

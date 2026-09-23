@@ -32,24 +32,26 @@ class OutboxSyncRepository @Inject constructor(
     override fun observeHealth(): Flow<SyncHealth> = healthStore.health
 
     override suspend fun syncPending(): Result<Unit> = runCatching {
+        if (!BuildConfig.USE_FAKE_BACKEND && sessions.current() == null) return@runCatching
         val attemptAt = clock.now().toEpochMilli()
         healthStore.attempted(attemptAt)
         val events = dao.pendingSyncEvents(100)
         if (BuildConfig.USE_FAKE_BACKEND) {
-            if (events.isNotEmpty()) dao.markSynced(events.map { it.eventUuid })
+            if (events.isNotEmpty()) database.withTransaction { dao.markAccepted(events.map { it.eventUuid }) }
             healthStore.succeeded(clock.now().toEpochMilli())
             return@runCatching
         }
         try {
             val cursor = cursors.current()
-            if (events.isNotEmpty()) {
+            deltaApplier.apply(api.changes(cursor))
+            val subscriptionReadOnly = dao.appConfigurationValue("subscription_access")?.contains("\"mode\":\"READ_ONLY\"") == true
+            if (events.isNotEmpty() && !subscriptionReadOnly) {
                 database.withTransaction { dao.markSyncing(events.map { it.id }, clock.now().toEpochMilli()) }
                 val deviceId = sessions.current()?.deviceId ?: error("Registered device session is required for sync")
                 val response = api.batchSync(BatchSyncRequest(deviceId, cursor, events.map { SyncEventDto(it.eventUuid, it.entityType, it.entityId, it.operation, mapOf("raw" to it.payload)) }))
-                if (response.acceptedEventIds.isNotEmpty()) dao.markSynced(response.acceptedEventIds)
+                if (response.acceptedEventIds.isNotEmpty()) database.withTransaction { dao.markAccepted(response.acceptedEventIds) }
                 if (response.failedEventIds.isNotEmpty()) dao.markSyncFailed(response.failedEventIds, "Server rejected this event")
             }
-            deltaApplier.apply(api.changes(cursor))
             healthStore.succeeded(clock.now().toEpochMilli())
         } catch (error: Exception) {
             if (events.isNotEmpty()) dao.markSyncFailed(events.map { it.eventUuid }, error.message?.take(300) ?: "Sync failed")

@@ -7,13 +7,24 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
     entities = [LeadEntity::class, CallEntity::class, CallEventEntity::class, NoteEntity::class, FollowUpEntity::class, SyncEventEntity::class, AppConfigurationEntity::class, LeadStageEntity::class, DispositionEntity::class, CallDispositionEntity::class, SyncConflictEntity::class],
-    version = 6,
+    version = 8,
     exportSchema = true,
 )
 abstract class CallFlowDatabase : RoomDatabase() {
     abstract fun dao(): CallFlowDao
 
     companion object {
+        val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("CREATE TABLE notes_new (id TEXT NOT NULL PRIMARY KEY, leadId TEXT, callId TEXT, body TEXT NOT NULL, createdAt INTEGER NOT NULL, createdBy TEXT NOT NULL, deviceId TEXT NOT NULL, syncStatus TEXT NOT NULL)")
+                db.execSQL("INSERT INTO notes_new SELECT id, leadId, callId, body, createdAt, createdBy, deviceId, syncStatus FROM notes")
+                db.execSQL("DROP TABLE notes")
+                db.execSQL("ALTER TABLE notes_new RENAME TO notes")
+                db.execSQL("CREATE INDEX index_notes_leadId ON notes (leadId)")
+                db.execSQL("CREATE INDEX index_notes_createdAt ON notes (createdAt)")
+                db.execSQL("CREATE INDEX index_notes_syncStatus ON notes (syncStatus)")
+            }
+        }
         val MIGRATION_1_2 = object : Migration(1, 2) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("CREATE TABLE IF NOT EXISTS `call_dispositions` (`id` TEXT NOT NULL, `callId` TEXT NOT NULL, `leadId` TEXT NOT NULL, `dispositionId` TEXT NOT NULL, `createdAt` INTEGER NOT NULL, `createdBy` TEXT NOT NULL, `syncStatus` TEXT NOT NULL, PRIMARY KEY(`id`))")
@@ -54,6 +65,21 @@ abstract class CallFlowDatabase : RoomDatabase() {
                 db.execSQL("ALTER TABLE `calls` ADD COLUMN `simLabel` TEXT DEFAULT NULL")
                 db.execSQL("ALTER TABLE `calls` ADD COLUMN `phoneAccountId` TEXT DEFAULT NULL")
                 db.execSQL("CREATE INDEX IF NOT EXISTS `index_calls_simSlot` ON `calls` (`simSlot`)")
+            }
+        }
+        val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `leads` ADD COLUMN `email` TEXT DEFAULT NULL")
+                db.execSQL("ALTER TABLE `leads` ADD COLUMN `interest` TEXT DEFAULT NULL")
+                db.execSQL("ALTER TABLE `leads` ADD COLUMN `state` TEXT DEFAULT NULL")
+                db.execSQL("ALTER TABLE `leads` ADD COLUMN `country` TEXT DEFAULT NULL")
+                db.execSQL("ALTER TABLE `leads` ADD COLUMN `assignedTo` TEXT DEFAULT NULL")
+                db.execSQL("ALTER TABLE `leads` ADD COLUMN `bestTime` TEXT DEFAULT NULL")
+                db.execSQL("ALTER TABLE `leads` ADD COLUMN `revenuePotential` INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE `leads` ADD COLUMN `createdAt` INTEGER DEFAULT NULL")
+                db.execSQL("ALTER TABLE `leads` ADD COLUMN `tags` TEXT DEFAULT NULL")
+                db.execSQL("ALTER TABLE `leads` ADD COLUMN `sourceDetails` TEXT DEFAULT NULL")
+                db.execSQL("ALTER TABLE `leads` ADD COLUMN `workshopsAttended` TEXT DEFAULT NULL")
             }
         }
     }

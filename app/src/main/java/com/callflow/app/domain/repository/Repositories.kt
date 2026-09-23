@@ -25,6 +25,7 @@ interface LeadRepository {
     fun observeCallStats(): Flow<Map<String, LeadCallStats>>
     fun observeCallStats(leadId: String): Flow<LeadCallStats>
     suspend fun createLead(value: NewLead): CreateLeadResult
+    suspend fun acknowledgeHandover(leadId: String): Result<Unit>
 }
 
 interface MetricsRepository { fun observeToday(): Flow<DailyMetrics> }
@@ -41,7 +42,7 @@ interface CallRepository {
     fun observeRecentCalls(): Flow<List<CallRecord>>
     fun observeDispositions(): Flow<List<DispositionOption>>
     suspend fun saveDisposition(input: DispositionInput): Result<Unit>
-    suspend fun addCallNote(callId: String, leadId: String, body: String): Result<Unit>
+    suspend fun addCallNote(callId: String, leadId: String?, body: String): Result<Unit>
 }
 
 interface FollowUpRepository {

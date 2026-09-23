@@ -2,6 +2,11 @@ package com.callflow.app.ui.operations
 
 import android.content.Intent
 import android.net.Uri
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -53,15 +58,19 @@ import java.time.format.DateTimeFormatter
 private val callDetailsTime = DateTimeFormatter.ofPattern("dd MMM yyyy, hh:mm a").withZone(ZoneId.systemDefault())
 private val quickTags = listOf("Interested", "Follow-up", "Information sent", "Busy", "Wrong number")
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun CallDetailsScreen(
     onBack: () -> Unit,
     onOpenLead: (String) -> Unit,
+    showPostCallNote: Boolean = false,
+    onAddResult: (String, String) -> Unit = { _, _ -> },
     viewModel: CallDetailsViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
-    var note by remember { mutableStateOf("") }
+    var note by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf("") }
+    var showNotePopup by androidx.compose.runtime.saveable.rememberSaveable(showPostCallNote) { mutableStateOf(showPostCallNote) }
     val call = state.call
     if (call == null) {
         Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
@@ -77,8 +86,22 @@ fun CallDetailsScreen(
         return
     }
     fun callBack() = runCatching { context.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:${call.phone}"))) }
-    fun openWhatsApp() = runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://wa.me/${call.phone.filter(Char::isDigit)}"))) }
+    fun openWhatsApp() = runCatching { com.callflow.app.core.openWhatsApp(context, call.phone) }
+        .onFailure { android.widget.Toast.makeText(context, "Unable to open WhatsApp. Check that WhatsApp or WhatsApp Business is installed.", android.widget.Toast.LENGTH_LONG).show() }
     val duration = call.answeredAt?.let { start -> call.endedAt?.epochSecond?.minus(start.epochSecond) }?.coerceAtLeast(0) ?: 0
+    val displayName = state.lead?.name ?: state.contactName ?: call.phone
+    if (showNotePopup) PostCallNoteDialog(
+        name = displayName,
+        phone = call.phone,
+        detail = "${callDetailsTime.format(call.startedAt)} · ${formatDuration(duration)}",
+        saving = state.saving,
+        error = state.message,
+        unmatched = call.leadId == null,
+        onDismiss = { showNotePopup = false },
+        onSave = { status, body, date ->
+            viewModel.saveResult(status, body, date) { showNotePopup = false }
+        },
+    )
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         item {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -89,11 +112,11 @@ fun CallDetailsScreen(
         item {
             PremiumCard(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(state.lead?.name ?: "Unmatched number", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                    Text(call.phone, color = Indigo, style = MaterialTheme.typography.titleMedium)
+                    Text(displayName, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                    if (displayName != call.phone) Text(call.phone, color = Indigo, style = MaterialTheme.typography.titleMedium)
                     Text("${call.direction.name.lowercase().replaceFirstChar(Char::uppercase)} · ${call.status.label()} · ${formatDuration(duration)}", color = if (call.status == CallStatus.CONNECTED) Emerald else MaterialTheme.colorScheme.error, fontWeight = FontWeight.SemiBold)
                     Text(call.simLabel(), color = Slate)
-                    if (state.lead == null) Text("Assign this phone number to a lead in the CFL dashboard to attach notes and follow-ups.", color = Slate, style = MaterialTheme.typography.bodySmall)
+                    if (state.lead == null) Text("Notes are attached to this call. Assign this number to a lead to schedule lead follow-ups.", color = Slate, style = MaterialTheme.typography.bodySmall)
                 }
             }
         }
@@ -103,13 +126,15 @@ fun CallDetailsScreen(
                 OutlinedButton(onClick = ::openWhatsApp, modifier = Modifier.weight(1f).height(52.dp)) { Icon(Icons.AutoMirrored.Outlined.Send, null); Text("  WHATSAPP") }
             }
         }
+        item { Button(onClick = { viewModel.clearMessage(); showNotePopup = true }, modifier = Modifier.fillMaxWidth().height(48.dp)) { Text("ADD CALL NOTE") } }
         state.lead?.let { lead ->
+            item { OutlinedButton(onClick = { onAddResult(lead.id, call.id) }, modifier = Modifier.fillMaxWidth()) { Text("ADD RESULT / FOLLOW-UP") } }
             item { OutlinedButton(onClick = { onOpenLead(lead.id) }, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Outlined.Person, null); Text("  OPEN ${lead.name.uppercase()}", maxLines = 1) } }
         }
         item { SectionHeader("Call tags", "Tap to save") }
         item {
             LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(quickTags) { tag -> FilterChip(false, { viewModel.addNote("Call tag: $tag") }, label = { Text(tag) }, enabled = !state.saving && call.leadId != null) }
+                items(quickTags) { tag -> FilterChip(false, { viewModel.addNote("Call tag: $tag") }, label = { Text(tag) }, enabled = !state.saving) }
             }
         }
         item {
@@ -117,13 +142,13 @@ fun CallDetailsScreen(
                 value = note,
                 onValueChange = { if (it.length <= 500) note = it },
                 label = { Text("Call note") },
-                supportingText = { Text("${note.length}/500 · Saved to the lead and CFL dashboard") },
+                supportingText = { Text(if (call.leadId == null) "${note.length}/500 · Stored on this device until lead assignment" else "${note.length}/500 · Saved to the lead and CFL dashboard") },
                 minLines = 3,
                 modifier = Modifier.fillMaxWidth(),
-                enabled = call.leadId != null && !state.saving,
+                enabled = !state.saving,
             )
         }
-        item { Button(onClick = { viewModel.addNote(note) { note = "" } }, enabled = note.isNotBlank() && !state.saving && call.leadId != null, modifier = Modifier.fillMaxWidth().height(52.dp)) { Text(if (state.saving) "SAVING…" else "SAVE CALL NOTE") } }
+        item { Button(onClick = { viewModel.addNote(note) { note = "" } }, enabled = note.isNotBlank() && !state.saving, modifier = Modifier.fillMaxWidth().height(52.dp)) { Text(if (state.saving) "SAVING…" else "SAVE CALL NOTE") } }
         state.message?.let { value -> item { Text(value, color = if (value.startsWith("Saved")) Emerald else MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium) } }
         item { SectionHeader("Notes & tags", "${state.notes.size}") }
         if (state.notes.isEmpty()) item { PremiumCard(Modifier.fillMaxWidth()) { Column(Modifier.padding(18.dp)) { Text("No notes for this call", fontWeight = FontWeight.SemiBold); Text("Add a note or tag to preserve the conversation context.", color = Slate) } } }

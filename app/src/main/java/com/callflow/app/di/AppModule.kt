@@ -70,17 +70,19 @@ object AppProviders {
             .addMigrations(CallFlowDatabase.MIGRATION_3_4)
             .addMigrations(CallFlowDatabase.MIGRATION_4_5)
             .addMigrations(CallFlowDatabase.MIGRATION_5_6)
+            .addMigrations(CallFlowDatabase.MIGRATION_6_7)
+            .addMigrations(CallFlowDatabase.MIGRATION_7_8)
             .build()
     @Provides fun dao(database: CallFlowDatabase): CallFlowDao = database.dao()
-    @Provides @Singleton @Named("rawHttp") fun rawHttp(connector: DashboardConnectorInterceptor): OkHttpClient =
-        OkHttpClient.Builder().addInterceptor(connector).build()
+    @Provides @Singleton @Named("rawHttp") fun rawHttp(connector: DashboardConnectorInterceptor, endpoint: com.callflow.app.data.remote.CrmEndpoint): OkHttpClient =
+        OkHttpClient.Builder().followRedirects(false).followSslRedirects(false).addInterceptor(connector).addInterceptor(endpoint).build()
     @Provides @Singleton fun refreshApi(@Named("rawHttp") client: OkHttpClient): RefreshTokenApi = Retrofit.Builder()
         .baseUrl(BuildConfig.API_BASE_URL)
         .client(client)
         .addConverterFactory(MoshiConverterFactory.create(Moshi.Builder().build()))
         .build().create(RefreshTokenApi::class.java)
-    @Provides @Singleton fun authenticatedHttp(accessToken: AccessTokenInterceptor, connector: DashboardConnectorInterceptor, authenticator: RefreshTokenAuthenticator, revocation: SessionRevocationInterceptor): OkHttpClient =
-        OkHttpClient.Builder().addInterceptor(connector).addInterceptor(accessToken).addInterceptor(revocation).authenticator(authenticator).build()
+    @Provides @Singleton fun authenticatedHttp(accessToken: AccessTokenInterceptor, connector: DashboardConnectorInterceptor, authenticator: RefreshTokenAuthenticator, revocation: SessionRevocationInterceptor, endpoint: com.callflow.app.data.remote.CrmEndpoint): OkHttpClient =
+        OkHttpClient.Builder().followRedirects(false).followSslRedirects(false).addInterceptor(connector).addInterceptor(endpoint).addInterceptor(accessToken).addInterceptor(revocation).authenticator(authenticator).build()
     @Provides @Singleton fun api(client: OkHttpClient): CallFlowApi = Retrofit.Builder()
         .baseUrl(BuildConfig.API_BASE_URL)
         .client(client)

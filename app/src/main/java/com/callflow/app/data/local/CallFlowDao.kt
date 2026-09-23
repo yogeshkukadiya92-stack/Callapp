@@ -9,6 +9,24 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface CallFlowDao {
+    @Query("DELETE FROM call_dispositions") suspend fun clearCallDispositions()
+    @Query("DELETE FROM call_events") suspend fun clearCallEvents()
+    @Query("DELETE FROM notes") suspend fun clearNotes()
+    @Query("DELETE FROM follow_ups") suspend fun clearFollowUps()
+    @Query("DELETE FROM calls") suspend fun clearCalls()
+    @Query("DELETE FROM sync_conflicts") suspend fun clearSyncConflicts()
+    @Query("DELETE FROM sync_events") suspend fun clearSyncEvents()
+    @Query("DELETE FROM leads") suspend fun clearLeads()
+    @Query("DELETE FROM dispositions") suspend fun clearDispositions()
+    @Query("DELETE FROM lead_stages") suspend fun clearLeadStages()
+    @Query("DELETE FROM app_configuration") suspend fun clearAppConfiguration()
+
+    @Transaction
+    suspend fun clearAccountData() {
+        clearCallDispositions(); clearCallEvents(); clearNotes(); clearFollowUps(); clearCalls()
+        clearSyncConflicts(); clearSyncEvents(); clearLeads(); clearDispositions(); clearLeadStages(); clearAppConfiguration()
+    }
+
     @Query("SELECT * FROM leads ORDER BY COALESCE(nextFollowUpAt, 9223372036854775807), updatedAt DESC LIMIT :limit")
     fun observeCallingQueue(limit: Int = 50): Flow<List<LeadEntity>>
 
@@ -72,11 +90,17 @@ interface CallFlowDao {
     @Query("UPDATE calls SET answeredAt = COALESCE(answeredAt, :at) WHERE id = :callId")
     suspend fun markCallAnswered(callId: String, at: Long)
 
-    @Query("UPDATE calls SET endedAt = :at, failureReason = :failureReason WHERE id = :callId")
+    @Query("UPDATE calls SET endedAt = COALESCE(endedAt, :at), failureReason = COALESCE(failureReason, :failureReason) WHERE id = :callId")
     suspend fun markCallEnded(callId: String, at: Long, failureReason: String? = null)
 
     @Query("SELECT * FROM calls WHERE id = :id LIMIT 1")
     fun observeCall(id: String): Flow<CallEntity?>
+
+    @Query("SELECT EXISTS(SELECT 1 FROM call_dispositions WHERE callId = :callId)")
+    suspend fun hasCallDisposition(callId: String): Boolean
+
+    @Query("SELECT EXISTS(SELECT 1 FROM call_dispositions WHERE callId = :callId) OR EXISTS(SELECT 1 FROM notes WHERE callId = :callId)")
+    suspend fun hasCallResult(callId: String): Boolean
 
     @Query("SELECT * FROM calls ORDER BY startedAt DESC LIMIT :limit")
     fun observeRecentCalls(limit: Int = 250): Flow<List<CallEntity>>
@@ -90,8 +114,20 @@ interface CallFlowDao {
     @Query("UPDATE calls SET leadId = :leadId, campaignId = :campaignId, syncStatus = 'PENDING' WHERE id = :callId AND leadId IS NULL")
     suspend fun linkCallToLead(callId: String, leadId: String, campaignId: String?)
 
-    @Query("SELECT * FROM calls WHERE normalizedPhone = :phone AND direction = :direction AND startedAt BETWEEN :from AND :to ORDER BY ABS(startedAt - :startedAt) LIMIT 1")
+    @Query("SELECT * FROM notes WHERE callId = :callId AND leadId IS NULL")
+    suspend fun unmatchedCallNotes(callId: String): List<NoteEntity>
+
+    @Query("UPDATE notes SET leadId = :leadId WHERE id = :noteId")
+    suspend fun linkNoteToLead(noteId: String, leadId: String)
+
+    @Query("SELECT * FROM calls WHERE normalizedPhone = :phone AND direction = :direction AND startedAt BETWEEN :from AND :to AND id NOT LIKE 'call-log-%' AND NOT EXISTS (SELECT 1 FROM call_events WHERE callId = calls.id AND type LIKE 'SYSTEM_LOG:%') ORDER BY ABS(startedAt - :startedAt) LIMIT 1")
     suspend fun findMatchingPlatformCall(phone: String, direction: String, startedAt: Long, from: Long, to: Long): CallEntity?
+
+    @Query("SELECT EXISTS(SELECT 1 FROM call_events WHERE type = :marker)")
+    suspend fun hasSystemCallLogMarker(marker: String): Boolean
+
+    @Query("SELECT EXISTS(SELECT 1 FROM call_events WHERE type = :marker)")
+    suspend fun hasSystemCallLogMarker(marker: String): Boolean
 
     @Query("UPDATE calls SET leadId = COALESCE(leadId, :leadId), campaignId = COALESCE(campaignId, :campaignId), startedAt = :startedAt, answeredAt = :answeredAt, endedAt = :endedAt, failureReason = :failureReason, simSlot = :simSlot, simLabel = :simLabel, phoneAccountId = :phoneAccountId, syncStatus = 'PENDING' WHERE id = :id")
     suspend fun reconcileCallFromSystemLog(id: String, leadId: String?, campaignId: String?, startedAt: Long, answeredAt: Long?, endedAt: Long, failureReason: String?, simSlot: Int?, simLabel: String?, phoneAccountId: String?)
@@ -138,6 +174,9 @@ interface CallFlowDao {
     @Query("SELECT * FROM app_configuration ORDER BY updatedAt DESC")
     fun observeAppConfiguration(): Flow<List<AppConfigurationEntity>>
 
+    @Query("SELECT value FROM app_configuration WHERE `key` = :key LIMIT 1")
+    suspend fun appConfigurationValue(key: String): String?
+
     @Insert(onConflict = OnConflictStrategy.ABORT)
     suspend fun insertSyncEvent(event: SyncEventEntity)
 
@@ -177,11 +216,33 @@ interface CallFlowDao {
     @Query("SELECT * FROM sync_events WHERE status IN ('PENDING', 'FAILED') ORDER BY createdAt LIMIT :limit")
     suspend fun pendingSyncEvents(limit: Int): List<SyncEventEntity>
 
+    @Query("DELETE FROM sync_events WHERE entityType = 'CALL' AND entityId IN (SELECT id FROM calls WHERE simSlot IS NOT NULL AND simSlot != :allowedSlot) AND status = 'PENDING'")
+    suspend fun purgePendingCallSyncEventsForOtherSims(allowedSlot: Int)
+
     @Query("UPDATE sync_events SET status = 'SYNCING', attemptCount = attemptCount + 1, lastAttemptAt = :at, lastError = NULL WHERE id IN (:ids) AND status IN ('PENDING', 'FAILED')")
     suspend fun markSyncing(ids: List<String>, at: Long)
 
     @Query("UPDATE sync_events SET status = 'SYNCED', lastError = NULL WHERE eventUuid IN (:eventUuids)")
     suspend fun markSynced(eventUuids: List<String>)
+
+    @Query("UPDATE calls SET syncStatus = 'SYNCED' WHERE id IN (SELECT entityId FROM sync_events WHERE eventUuid IN (:eventUuids) AND entityType = 'CALL')")
+    suspend fun markCallsSynced(eventUuids: List<String>)
+
+    @Query("UPDATE notes SET syncStatus = 'SYNCED' WHERE id IN (SELECT entityId FROM sync_events WHERE eventUuid IN (:eventUuids) AND entityType = 'NOTE')")
+    suspend fun markNotesSynced(eventUuids: List<String>)
+
+    @Query("UPDATE follow_ups SET syncStatus = 'SYNCED' WHERE id IN (SELECT entityId FROM sync_events WHERE eventUuid IN (:eventUuids) AND entityType = 'FOLLOW_UP')")
+    suspend fun markFollowUpsSynced(eventUuids: List<String>)
+
+    @Query("UPDATE call_dispositions SET syncStatus = 'SYNCED' WHERE id IN (SELECT entityId FROM sync_events WHERE eventUuid IN (:eventUuids) AND entityType = 'CALL_DISPOSITION')")
+    suspend fun markDispositionsSynced(eventUuids: List<String>)
+
+    @Transaction
+    suspend fun markAccepted(eventUuids: List<String>) {
+        if (eventUuids.isEmpty()) return
+        markCallsSynced(eventUuids); markNotesSynced(eventUuids); markFollowUpsSynced(eventUuids); markDispositionsSynced(eventUuids)
+        markSynced(eventUuids)
+    }
 
     @Query("UPDATE sync_events SET status = 'FAILED', lastError = :error WHERE eventUuid IN (:eventUuids) AND status != 'SYNCED'")
     suspend fun markSyncFailed(eventUuids: List<String>, error: String)

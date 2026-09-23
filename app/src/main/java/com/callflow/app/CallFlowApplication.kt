@@ -10,12 +10,13 @@ import androidx.work.Configuration
 import com.callflow.app.sync.SyncWorker
 import javax.inject.Inject
 import com.callflow.app.notifications.FollowUpNotificationManager
+import com.callflow.app.core.contacts.DeviceContactResolver
 
 @HiltAndroidApp
 class CallFlowApplication : Application(), Configuration.Provider, DefaultLifecycleObserver {
     @Inject lateinit var workerFactory: HiltWorkerFactory
     @Inject lateinit var followUpNotifications: FollowUpNotificationManager
-    private var lastForegroundSyncAt = 0L
+    @Inject lateinit var contactResolver: DeviceContactResolver
 
     override val workManagerConfiguration: Configuration
         get() = Configuration.Builder().setWorkerFactory(workerFactory).build()
@@ -28,9 +29,12 @@ class CallFlowApplication : Application(), Configuration.Provider, DefaultLifecy
     }
 
     override fun onStart(owner: LifecycleOwner) {
-        val now = System.currentTimeMillis()
-        if (now - lastForegroundSyncAt < 30_000) return
-        lastForegroundSyncAt = now
+        // Periodic work handles ongoing reconciliation; sync only once per foreground entry.
         SyncWorker.syncNow(this)
+    }
+
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        if (level >= TRIM_MEMORY_UI_HIDDEN) contactResolver.trimCache()
     }
 }

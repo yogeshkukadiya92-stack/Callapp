@@ -41,16 +41,37 @@ class CallUiController @Inject constructor() {
 
     fun attachService(value: InCallService) { service = value }
     fun detachService(value: InCallService) { if (service === value) service = null }
+
+    fun setPreferredCaller(phoneNumber: String, name: String?) {
+        val cleanName = name?.takeIf(::isUsableDisplayName)
+        val current = mutableState.value
+        mutableState.value = current.copy(
+            phoneNumber = phoneNumber.ifBlank { current.phoneNumber },
+            displayName = cleanName ?: current.displayName?.takeIf(::isUsableDisplayName)
+        )
+    }
+
     fun setMatchedLeadName(phoneNumber: String, name: String?) {
-        if (!name.isNullOrBlank() && mutableState.value.phoneNumber == phoneNumber && mutableState.value.displayName.isNullOrBlank()) {
-            mutableState.value = mutableState.value.copy(displayName = name)
+        val cleanName = name?.takeIf(::isUsableDisplayName)
+        if (cleanName != null) {
+            val current = mutableState.value
+            mutableState.value = current.copy(
+                phoneNumber = if (current.phoneNumber.isBlank()) phoneNumber else current.phoneNumber,
+                displayName = cleanName
+            )
         }
     }
 
     fun attachCall(value: Call) {
         call?.unregisterCallback(callback)
         call = value
-        mutableState.value = InCallUiState(muted = mutableState.value.muted, speaker = mutableState.value.speaker)
+        val previous = mutableState.value
+        mutableState.value = InCallUiState(
+            phoneNumber = previous.phoneNumber,
+            displayName = previous.displayName?.takeIf(::isUsableDisplayName),
+            muted = previous.muted,
+            speaker = previous.speaker
+        )
         value.registerCallback(callback)
         publish(value, currentState(value))
     }
@@ -93,7 +114,11 @@ class CallUiController @Inject constructor() {
             else -> PlatformCallState.DISCONNECTED
         }
         val previous = mutableState.value
-        val currentPhone = details.handle?.schemeSpecificPart.orEmpty()
+        val rawHandle = details.handle?.schemeSpecificPart.orEmpty()
+        val currentPhone = rawHandle.ifBlank { previous.phoneNumber }
+        val telecomName = details.callerDisplayName?.toString()?.takeIf(::isUsableDisplayName)
+        val resolvedName = previous.displayName?.takeIf(::isUsableDisplayName) ?: telecomName
+
         val connectedAt = when {
             state == PlatformCallState.ACTIVE && previous.connectedAtMillis == null -> System.currentTimeMillis()
             state == PlatformCallState.DISCONNECTED -> null
@@ -102,7 +127,7 @@ class CallUiController @Inject constructor() {
         mutableState.value = previous.copy(
             hasCall = state != PlatformCallState.DISCONNECTED,
             phoneNumber = currentPhone,
-            displayName = details.callerDisplayName?.toString()?.takeIf(String::isNotBlank) ?: previous.displayName.takeIf { previous.phoneNumber == currentPhone },
+            displayName = resolvedName,
             incoming = incoming,
             state = state,
             canHold = details.callCapabilities and Call.Details.CAPABILITY_HOLD != 0 || state == PlatformCallState.HOLDING,
@@ -112,4 +137,17 @@ class CallUiController @Inject constructor() {
 
     @Suppress("DEPRECATION")
     private fun currentState(value: Call): Int = if (android.os.Build.VERSION.SDK_INT >= 31) value.details.state else value.state
+
+    companion object {
+        fun isUsableDisplayName(name: String?): Boolean {
+            if (name.isNullOrBlank()) return false
+            val lower = name.trim().lowercase()
+            return lower != "business call" &&
+                   lower != "unknown" &&
+                   lower != "unknown caller" &&
+                   lower != "conference" &&
+                   lower != "private number" &&
+                   lower != "null"
+        }
+    }
 }

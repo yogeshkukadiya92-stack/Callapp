@@ -8,9 +8,29 @@ import retrofit2.http.Query
 import retrofit2.http.Header
 
 @JsonClass(generateAdapter = true)
-data class LoginRequest(val identity: String, val password: String? = null, val otp: String? = null)
+data class LoginRequest(
+    val identity: String,
+    val password: String? = null,
+    val otp: String? = null,
+    val installId: String? = null,
+    val deviceName: String? = null,
+    val manufacturer: String? = null,
+    val model: String? = null,
+    val androidVersion: String? = null,
+    val appVersion: String? = null,
+)
 @JsonClass(generateAdapter = true)
-data class TokenResponse(val accessToken: String, val refreshToken: String, val expiresAt: String, val employeeName: String? = null, val mobile: String? = null)
+data class TokenResponse(
+    val accessToken: String,
+    val refreshToken: String,
+    val expiresAt: String,
+    val offlineValidUntil: String? = null,
+    val employeeName: String? = null,
+    val mobile: String? = null,
+    val accountId: String? = null,
+    val deviceId: String? = null,
+    val status: String? = null,
+)
 @JsonClass(generateAdapter = true)
 data class AssignmentAvailabilityRequest(val acceptingLeads: Boolean, val latitude: Double? = null, val longitude: Double? = null, val accuracyMeters: Float? = null, val capturedAt: String? = null)
 @JsonClass(generateAdapter = true)
@@ -22,7 +42,11 @@ data class ShiftDayResponse(val date: String, val shiftStartedAt: String? = null
 @JsonClass(generateAdapter = true)
 data class ShiftSummaryResponse(val today: ShiftDayResponse, val last7Days: List<ShiftDayResponse> = emptyList(), val totalActiveSeconds: Long = 0, val totalCalls: Int = 0)
 @JsonClass(generateAdapter = true)
-data class EngagementConfigResponse(val whatsappTemplate: String, val salespersonName: String)
+data class EngagementConfigResponse(
+    val whatsappTemplate: String,
+    val salespersonName: String,
+    val noteTemplates: List<String> = emptyList(),
+)
 @JsonClass(generateAdapter = true)
 data class LocationCheckInRequest(val followUpId: String, val leadId: String, val latitude: Double, val longitude: Double, val accuracyMeters: Float, val capturedAt: String)
 @JsonClass(generateAdapter = true)
@@ -57,6 +81,17 @@ data class LeadDeltaDto(
     val duplicateCount: Int = 1,
     val score: Int = 0,
     val quality: String? = null,
+    val email: String? = null,
+    val interest: String? = null,
+    val state: String? = null,
+    val country: String? = null,
+    val assignedTo: String? = null,
+    val bestTime: String? = null,
+    val revenuePotential: Long = 0,
+    val createdAt: Long? = null,
+    val tags: List<String> = emptyList(),
+    val sourceDetails: List<String> = emptyList(),
+    val workshopsAttended: List<String> = emptyList(),
 )
 @JsonClass(generateAdapter = true)
 data class CallDeltaDto(val id: String, val serverId: String?, val leadId: String?, val employeeId: String, val campaignId: String?, val normalizedPhone: String, val direction: String, val startedAt: Long, val answeredAt: Long?, val endedAt: Long?, val failureReason: String?, val simSlot: Int? = null, val simLabel: String? = null, val phoneAccountId: String? = null)
@@ -100,6 +135,7 @@ data class DeltaSyncResponse(
 interface CallFlowApi {
     @POST("auth/login") suspend fun login(@Body request: LoginRequest): TokenResponse
     @POST("auth/refresh") suspend fun refresh(@Body refreshToken: Map<String, String>): TokenResponse
+    @POST("auth/logout") suspend fun logout()
     @POST("devices/register") suspend fun registerDevice(@Header("Authorization") authorization: String, @Body request: DeviceRegistrationRequest): DeviceRegistrationResponse
     @GET("crm/status") suspend fun connectorStatus(): DashboardConnectorStatusDto
     @GET("availability") suspend fun assignmentAvailability(): AssignmentAvailabilityResponse

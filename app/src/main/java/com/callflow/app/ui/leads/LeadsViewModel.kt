@@ -31,11 +31,13 @@ data class LeadsUiState(
     val query: String = "",
     val selectedFilter: String = "ALL",
     val leads: List<Lead> = emptyList(),
+    val matchingLeadCount: Int = 0,
     val totalLeads: Int = 0,
     val newLeads: Int = 0,
     val stageCounts: Map<String, Int> = emptyMap(),
     val startDate: LocalDate? = null,
     val endDate: LocalDate? = null,
+    val dateMode: LeadDateMode = LeadDateMode.NONE,
     val selectedSource: String = "ALL",
     val selectedQuality: String = "ALL",
     val selectedCity: String = "ALL",
@@ -53,10 +55,13 @@ data class LeadsUiState(
     val overdue: Int = 0,
 )
 
+enum class LeadDateMode { NONE, TODAY, CUSTOM }
+
 private data class LeadFilters(
     val stage: String = "ALL",
     val startDate: LocalDate? = null,
     val endDate: LocalDate? = null,
+    val dateMode: LeadDateMode = LeadDateMode.NONE,
     val source: String = "ALL",
     val quality: String = "ALL",
     val city: String = "ALL",
@@ -74,15 +79,18 @@ class LeadsViewModel @Inject constructor(repository: LeadRepository, prioritize:
     private val filters = MutableStateFlow(LeadFilters())
     val state: StateFlow<LeadsUiState> = combine(repository.observeAllAssignedLeads(), repository.observeCallStats(), query.debounce(180), filters) { source, callStats, q, filter ->
         val prioritized = prioritize(source) + source.filter(Lead::doNotCall).sortedByDescending(Lead::updatedAt)
-        val searched = if (q.isBlank()) prioritized else prioritized.filter { lead -> listOf(lead.name, lead.displayPhone, lead.company.orEmpty(), lead.city.orEmpty(), lead.campaignId.orEmpty(), lead.quality.orEmpty(), lead.score.toString()).any { it.contains(q, ignoreCase = true) } }
-        val dated = filterLeadsByDate(searched, filter.startDate, filter.endDate)
-        val staged = when (filter.stage) {
-            "ALL" -> dated
-            "NEW" -> dated.filter(Lead::isNew)
-            "OLD" -> dated.filterNot(Lead::isNew)
-            else -> dated.filter { it.stageId.equals(filter.stage, ignoreCase = true) }
-        }
-        val refined = staged
+        val filtered = prioritized.asSequence()
+            .filter { lead -> q.isBlank() || listOf(lead.name, lead.displayPhone, lead.company.orEmpty(), lead.city.orEmpty(), lead.campaignId.orEmpty(), lead.quality.orEmpty(), lead.score.toString()).any { it.contains(q, ignoreCase = true) } }
+            .filter { lead ->
+                val date = lead.updatedAt.atZone(ZoneId.systemDefault()).toLocalDate()
+                (filter.startDate == null || !date.isBefore(filter.startDate)) && (filter.endDate == null || !date.isAfter(filter.endDate))
+            }
+            .filter { lead -> when (filter.stage) {
+                "ALL" -> true
+                "NEW" -> lead.isNew()
+                "OLD" -> !lead.isNew()
+                else -> lead.stageId.equals(filter.stage, ignoreCase = true)
+            } }
             .filter { filter.source == "ALL" || it.campaignId.equals(filter.source, true) }
             .filter { filter.quality == "ALL" || it.quality.equals(filter.quality, true) }
             .filter { filter.city == "ALL" || it.city.equals(filter.city, true) }
@@ -90,21 +98,21 @@ class LeadsViewModel @Inject constructor(repository: LeadRepository, prioritize:
             .filter { filter.callability == "ALL" || filter.callability == "CALLABLE" && !it.doNotCall || filter.callability == "DNC" && it.doNotCall }
             .filter { filter.duplicates == "ALL" || filter.duplicates == "UNIQUE" && it.duplicateCount <= 1 || filter.duplicates == "DUPLICATE" && it.duplicateCount > 1 }
             .filter { lead -> lead.matchesContactStatus(filter.contactStatus, callStats[lead.id], java.time.Instant.now()) }
-        val visible = when (filter.sort) {
-            "NEWEST" -> refined.sortedByDescending(Lead::updatedAt)
-            "OLDEST" -> refined.sortedBy(Lead::updatedAt)
-            "SCORE_HIGH" -> refined.sortedByDescending(Lead::score)
-            "SCORE_LOW" -> refined.sortedBy(Lead::score)
-            "NAME" -> refined.sortedBy { it.name.lowercase() }
-            "LAST_CONTACT" -> refined.sortedByDescending { callStats[it.id]?.lastContactedAt ?: java.time.Instant.EPOCH }
-            else -> refined
+            .toMutableList()
+        when (filter.sort) {
+            "NEWEST" -> filtered.sortByDescending(Lead::updatedAt)
+            "OLDEST" -> filtered.sortBy(Lead::updatedAt)
+            "SCORE_HIGH" -> filtered.sortByDescending(Lead::score)
+            "SCORE_LOW" -> filtered.sortBy(Lead::score)
+            "NAME" -> filtered.sortBy { it.name.lowercase() }
+            "LAST_CONTACT" -> filtered.sortByDescending { callStats[it.id]?.lastContactedAt ?: java.time.Instant.EPOCH }
         }
         val activeCount = listOf(filter.stage, filter.source, filter.quality, filter.city, filter.score, filter.callability, filter.duplicates, filter.contactStatus).count { it != "ALL" } +
-            listOf(filter.startDate, filter.endDate).count { it != null } + if (filter.sort != "PRIORITY") 1 else 0
+            (if (filter.dateMode != LeadDateMode.NONE) 1 else 0) + (if (filter.sort != "PRIORITY") 1 else 0)
         val todayStart = java.time.Instant.now().atZone(ZoneId.systemDefault()).toLocalDate().atStartOfDay(ZoneId.systemDefault()).toInstant()
         LeadsUiState(
-            query = q, selectedFilter = filter.stage, leads = visible, totalLeads = source.size, newLeads = source.count(Lead::isNew), stageCounts = source.groupingBy { it.stageId }.eachCount(),
-            startDate = filter.startDate, endDate = filter.endDate, selectedSource = filter.source, selectedQuality = filter.quality, selectedCity = filter.city,
+            query = q, selectedFilter = filter.stage, leads = filtered.take(100), matchingLeadCount = filtered.size, totalLeads = source.size, newLeads = source.count(Lead::isNew), stageCounts = source.groupingBy { it.stageId }.eachCount(),
+            startDate = filter.startDate, endDate = filter.endDate, dateMode = filter.dateMode, selectedSource = filter.source, selectedQuality = filter.quality, selectedCity = filter.city,
             selectedScore = filter.score, selectedCallability = filter.callability, selectedDuplicates = filter.duplicates, selectedContactStatus = filter.contactStatus, selectedSort = filter.sort,
             sources = source.mapNotNull(Lead::campaignId).filter(String::isNotBlank).distinct().sorted(), qualities = source.mapNotNull(Lead::quality).filter(String::isNotBlank).distinct().sorted(),
             cities = source.mapNotNull(Lead::city).filter(String::isNotBlank).distinct().sorted(), activeFilterCount = activeCount, contactStats = callStats,
@@ -121,13 +129,14 @@ class LeadsViewModel @Inject constructor(repository: LeadRepository, prioritize:
     fun setDuplicates(value: String) { filters.value = filters.value.copy(duplicates = value) }
     fun setContactStatus(value: String) { filters.value = filters.value.copy(contactStatus = value) }
     fun setSort(value: String) { filters.value = filters.value.copy(sort = value) }
-    fun setStartDate(value: LocalDate) {
-        filters.value = filters.value.copy(startDate = value, endDate = filters.value.endDate?.takeUnless { it.isBefore(value) } ?: value)
+    fun setTodayDateFilter(today: LocalDate = LocalDate.now()) {
+        filters.value = filters.value.copy(startDate = today, endDate = today, dateMode = LeadDateMode.TODAY)
     }
-    fun setEndDate(value: LocalDate) {
-        filters.value = filters.value.copy(endDate = value, startDate = filters.value.startDate?.takeUnless { it.isAfter(value) } ?: value)
+    fun setCustomDateRange(startDate: LocalDate, endDate: LocalDate) {
+        val (from, to) = normalizedDateRange(startDate, endDate)
+        filters.value = filters.value.copy(startDate = from, endDate = to, dateMode = LeadDateMode.CUSTOM)
     }
-    fun clearDateFilter() { filters.value = filters.value.copy(startDate = null, endDate = null) }
+    fun clearDateFilter() { filters.value = filters.value.copy(startDate = null, endDate = null, dateMode = LeadDateMode.NONE) }
     fun clearAllFilters() { filters.value = LeadFilters() }
 }
 
@@ -158,15 +167,31 @@ internal fun filterLeadsByDate(leads: List<Lead>, startDate: LocalDate?, endDate
     }
 }
 
-data class LeadDetailUiState(val lead: Lead? = null, val timeline: List<TimelineItem> = emptyList(), val stats: LeadCallStats = LeadCallStats(""), val engagement: EngagementConfigResponse? = null, val loading: Boolean = true, val engagementLoading: Boolean = true)
+internal fun normalizedDateRange(startDate: LocalDate, endDate: LocalDate): Pair<LocalDate, LocalDate> =
+    minOf(startDate, endDate) to maxOf(startDate, endDate)
+
+data class LeadDetailUiState(val lead: Lead? = null, val timeline: List<TimelineItem> = emptyList(), val stats: LeadCallStats = LeadCallStats(""), val engagement: EngagementConfigResponse? = null, val loading: Boolean = true, val engagementLoading: Boolean = true, val pendingHandover: Boolean = false, val handoverSaving: Boolean = false, val handoverError: String? = null)
 
 @HiltViewModel
-class LeadDetailViewModel @Inject constructor(savedStateHandle: SavedStateHandle, repository: LeadRepository, private val api: CallFlowApi) : ViewModel() {
+class LeadDetailViewModel @Inject constructor(savedStateHandle: SavedStateHandle, private val repository: LeadRepository, private val api: CallFlowApi) : ViewModel() {
     private val id: String = checkNotNull(savedStateHandle["leadId"])
     private val engagement = MutableStateFlow<EngagementConfigResponse?>(null)
     private val engagementAttempted = MutableStateFlow(false)
-    val state = combine(repository.observeLead(id), repository.observeTimeline(id), repository.observeCallStats(id), engagement, engagementAttempted) { lead, timeline, stats, config, attempted -> LeadDetailUiState(lead, timeline, stats, config, loading = false, engagementLoading = !attempted) }
+    private val handoverSaving = MutableStateFlow(false)
+    private val handoverError = MutableStateFlow<String?>(null)
+    private val baseState = combine(repository.observeLead(id), repository.observeTimeline(id), repository.observeCallStats(id), engagement, engagementAttempted) { lead, timeline, stats, config, attempted ->
+        val latestHandover = timeline.filter { it.title == "Lead handover" }.maxByOrNull(TimelineItem::occurredAt)
+        val latestAck = timeline.filter { it.title == "Handover accepted" }.maxByOrNull(TimelineItem::occurredAt)
+        LeadDetailUiState(lead, timeline, stats, config, loading = false, engagementLoading = !attempted, pendingHandover = latestHandover != null && (latestAck == null || latestAck.occurredAt.isBefore(latestHandover.occurredAt)))
+    }
+    val state = combine(baseState, handoverSaving, handoverError) { base, saving, error -> base.copy(handoverSaving = saving, handoverError = error) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), LeadDetailUiState())
     init { refreshEngagement() }
     fun refreshEngagement() { engagementAttempted.value = false; viewModelScope.launch { runCatching { api.engagementConfig() }.onSuccess { engagement.value = it }; engagementAttempted.value = true } }
+    fun acknowledgeHandover() {
+        if (handoverSaving.value) return
+        handoverSaving.value = true
+        handoverError.value = null
+        viewModelScope.launch { repository.acknowledgeHandover(id).fold(onSuccess = { handoverSaving.value = false }, onFailure = { handoverSaving.value = false; handoverError.value = it.message ?: "Could not confirm handover" }) }
+    }
 }

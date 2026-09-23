@@ -23,5 +23,12 @@ class LeadDateFilterTest {
         assertEquals(listOf("match"), filterLeadsByDate(leads, date, date, ZoneOffset.UTC).map(Lead::id))
     }
 
+    @Test fun customDateRangeNormalizesDatesSelectedInReverseOrder() {
+        val (from, to) = normalizedDateRange(LocalDate.parse("2026-08-25"), LocalDate.parse("2026-08-01"))
+
+        assertEquals(LocalDate.parse("2026-08-01"), from)
+        assertEquals(LocalDate.parse("2026-08-25"), to)
+    }
+
     private fun lead(id: String, updatedAt: String) = Lead(id, id, id, null, null, "+911234567890", "+91 12345 67890", "new", "sales", null, null, Instant.parse(updatedAt), 1)
 }

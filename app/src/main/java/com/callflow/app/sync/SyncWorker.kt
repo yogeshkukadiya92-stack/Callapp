@@ -43,7 +43,11 @@ class SyncWorker @AssistedInject constructor(
     companion object {
         private const val UNIQUE_NAME = "callflow-outbox-sync"
         fun syncNow(context: Context) {
-            WorkManager.getInstance(context).enqueue(OneTimeWorkRequestBuilder<SyncWorker>().build())
+            val request = OneTimeWorkRequestBuilder<SyncWorker>()
+                .setInitialDelay(2, TimeUnit.SECONDS)
+                .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
+                .build()
+            WorkManager.getInstance(context).enqueueUniqueWork("callflow-immediate-sync", ExistingWorkPolicy.REPLACE, request)
         }
 
         fun syncAfterLogin(context: Context) {

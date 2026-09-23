@@ -52,28 +52,44 @@ class CallLifecycleTracker @Inject constructor(
             } else {
                 dao.insertCallEvent(lifecycle)
             }
-            resolved.complete(TrackedCall(id, lead?.id, direction == "INCOMING"))
+            val existingLeadId = openCalls.singleOrNull { it.id == existingId }?.leadId
+            resolved.complete(TrackedCall(id, existingLeadId ?: lead?.id, direction == "INCOMING"))
         }
-        call.registerCallback(object : android.telecom.Call.Callback() {
+        val callback = object : android.telecom.Call.Callback() {
             override fun onStateChanged(value: android.telecom.Call, state: Int) {
                 val at = clock.now().toEpochMilli()
                 scope.launch {
                     val id = resolved.await().id
                     when (state) {
-                        android.telecom.Call.STATE_ACTIVE -> { dao.markCallAnswered(id, at); dao.insertCallEvent(CallEventEntity(UUID.randomUUID().toString(), id, "CONNECTED", at)) }
-                        android.telecom.Call.STATE_DISCONNECTED -> { dao.markCallEnded(id, at, value.details.disconnectCause?.label?.toString()); dao.insertCallEvent(CallEventEntity(UUID.randomUUID().toString(), id, "ENDED", at)) }
+                        android.telecom.Call.STATE_ACTIVE -> {
+                            val connectedAt = value.details.connectTimeMillis.takeIf { it in now..at } ?: at
+                            dao.markCallAnswered(id, connectedAt)
+                            dao.insertCallEvent(CallEventEntity(UUID.randomUUID().toString(), id, "CONNECTED", connectedAt))
+                        }
+                        android.telecom.Call.STATE_DISCONNECTED -> {
+                            dao.markCallEnded(id, at, value.details.disconnectCause?.label?.toString())
+                            dao.insertCallEvent(CallEventEntity(UUID.randomUUID().toString(), id, "ENDED", at))
+                            val tracked = resolved.await()
+                            if (!dao.hasCallResult(id)) postCall.show(tracked.leadId, id)
+                        }
                         android.telecom.Call.STATE_RINGING -> dao.insertCallEvent(CallEventEntity(UUID.randomUUID().toString(), id, "RINGING", at))
                     }
                 }
             }
-        })
+        }
+        call.registerCallback(callback)
+        // Telecom may bind while a call is already active (for example after process recreation).
+        @Suppress("DEPRECATION")
+        val initialState = if (android.os.Build.VERSION.SDK_INT >= 31) call.details.state else call.state
+        callback.onStateChanged(call, initialState)
     }
 
     fun onCallRemoved(call: android.telecom.Call) {
         val resolved = platformCalls.remove(call) ?: return
         scope.launch {
             val tracked = resolved.await()
-            if (tracked.incoming && tracked.leadId != null) postCall.show(tracked.leadId, tracked.id)
+            dao.markCallEnded(tracked.id, clock.now().toEpochMilli(), call.details.disconnectCause?.label?.toString())
+            if (!dao.hasCallResult(tracked.id)) postCall.show(tracked.leadId, tracked.id)
         }
     }
 }

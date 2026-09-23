@@ -24,6 +24,17 @@ data class LeadEntity(
     val duplicateCount: Int = 1,
     val score: Int = 0,
     val quality: String? = null,
+    val email: String? = null,
+    val interest: String? = null,
+    val state: String? = null,
+    val country: String? = null,
+    val assignedTo: String? = null,
+    val bestTime: String? = null,
+    val revenuePotential: Long = 0,
+    val createdAt: Long? = null,
+    val tags: String? = null,
+    val sourceDetails: String? = null,
+    val workshopsAttended: String? = null,
 )
 
 @Entity(tableName = "calls", indices = [Index("leadId"), Index("employeeId"), Index("startedAt"), Index("syncStatus"), Index("simSlot")])
@@ -49,7 +60,7 @@ data class CallEntity(
 data class CallEventEntity(@PrimaryKey val id: String, val callId: String, val type: String, val occurredAt: Long)
 
 @Entity(tableName = "notes", indices = [Index("leadId"), Index("createdAt"), Index("syncStatus")])
-data class NoteEntity(@PrimaryKey val id: String, val leadId: String, val callId: String?, val body: String, val createdAt: Long, val createdBy: String, val deviceId: String, val syncStatus: String)
+data class NoteEntity(@PrimaryKey val id: String, val leadId: String?, val callId: String?, val body: String, val createdAt: Long, val createdBy: String, val deviceId: String, val syncStatus: String)
 
 @Entity(tableName = "follow_ups", indices = [Index("leadId"), Index("assignedTo"), Index("scheduledAt"), Index("status"), Index("syncStatus")])
 data class FollowUpEntity(@PrimaryKey val id: String, val leadId: String, val scheduledAt: Long, val note: String?, val priority: Int, val assignedTo: String, val type: String, val status: String, val createdAt: Long, val updatedAt: Long, val version: Long, val syncStatus: String)

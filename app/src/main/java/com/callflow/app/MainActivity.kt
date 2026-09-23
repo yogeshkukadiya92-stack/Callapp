@@ -26,7 +26,9 @@ import com.callflow.app.telecom.CallIntegrationManager
 import com.callflow.app.core.model.Outcome
 import com.callflow.app.ui.theme.CallFlowTheme
 import com.callflow.app.telecom.CallLogImporter
+import com.callflow.app.telecom.reconcileCallLogAfterResume
 import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
 @AndroidEntryPoint
@@ -34,13 +36,28 @@ class MainActivity : ComponentActivity() {
     @Inject lateinit var callIntegration: CallIntegrationManager
     @Inject lateinit var callLogImporter: CallLogImporter
     private var dialNumber by mutableStateOf<String?>(null)
+    private var hasResumedOnce = false
+    private var callLogReconciliation: Job? = null
+    private var callTrackingDisclosureAccepted by mutableStateOf(false)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        callTrackingDisclosureAccepted = getSharedPreferences("callflow_privacy", MODE_PRIVATE).getBoolean("call_tracking_disclosure_v1", false)
         dialNumber = intent.takeIf { it.action == Intent.ACTION_DIAL }?.data?.schemeSpecificPart.orEmpty().takeIf(String::isNotEmpty)
-        enableEdgeToEdge()
+        enableEdgeToEdge(statusBarStyle = androidx.activity.SystemBarStyle.dark(android.graphics.Color.TRANSPARENT), navigationBarStyle = androidx.activity.SystemBarStyle.dark(android.graphics.Color.rgb(25, 26, 30)))
         setContent {
             val externalDial = intent.action == Intent.ACTION_DIAL
-            if (externalDial) CallFlowTheme { DialEntryScreen(dialNumber.orEmpty(), onCall = callIntegration::initiateCall, onClose = ::finish) } else CallFlowApp()
+            if (externalDial) CallFlowTheme { DialEntryScreen(dialNumber.orEmpty(), onCall = callIntegration::initiateCall, onClose = ::finish) } else {
+                CallFlowApp()
+                if (!callTrackingDisclosureAccepted) CallFlowTheme {
+                    androidx.compose.material3.AlertDialog(
+                        onDismissRequest = {},
+                        title = { Text("Business call tracking disclosure") },
+                        text = { Text("CallFlow uses Phone and Call log access to place business calls with your mobile's native dialer. After a call appears in Android call history, its number, direction, SIM, time and duration sync to your company dashboard. Location is captured only when you start/end a shift or check in to a meeting.") },
+                        confirmButton = { Button(onClick = { getSharedPreferences("callflow_privacy", MODE_PRIVATE).edit().putBoolean("call_tracking_disclosure_v1", true).apply(); callTrackingDisclosureAccepted = true }) { Text("I UNDERSTAND · CONTINUE") } },
+                        dismissButton = { androidx.compose.material3.TextButton(onClick = ::finish) { Text("EXIT") } },
+                    )
+                }
+            }
         }
     }
 
@@ -48,8 +65,24 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
-        // Reconcile only confirmed Android call-log rows. Opening a dial pad alone never creates history.
-        lifecycleScope.launch { callLogImporter.importNewCalls() }
+        callLogReconciliation?.cancel()
+        val retryDelayedCallLog = hasResumedOnce
+        hasResumedOnce = true
+        // Android may publish a completed call-log row a few seconds after the dialer closes.
+        // Retry only for a resumed call flow; the first app launch remains a single light read.
+        callLogReconciliation = lifecycleScope.launch {
+            reconcileCallLogAfterResume(retryDelayedCallLog) {
+                runCatching { callLogImporter.importNewCalls() }
+                    .onFailure { android.util.Log.w("CallFlow", "Call history reconciliation will retry", it) }
+                    .getOrDefault(0)
+            }
+        }
+    }
+
+    override fun onStop() {
+        callLogReconciliation?.cancel()
+        callLogReconciliation = null
+        super.onStop()
     }
 }
 

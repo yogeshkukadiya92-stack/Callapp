@@ -32,6 +32,7 @@ object CallAnalysisCalculator {
             Duration.between(answeredAt, endedAt).seconds.coerceAtLeast(0)
         }
         val totalTalkTime = durations.sum()
+        val callsByHour = calls.groupingBy { it.startedAt.atZone(zoneId).hour }.eachCount()
         return CallAnalysis(
             totalCalls = calls.size,
             connectedCalls = connected.size,
@@ -44,8 +45,8 @@ object CallAnalysisCalculator {
             outgoingCalls = calls.count { it.direction == CallDirection.OUTGOING },
             uniqueNumbers = calls.map(CallRecord::phone).filter(String::isNotBlank).distinct().size,
             longestTalkTimeSeconds = durations.maxOrNull() ?: 0,
-            peakHour = calls.groupingBy { it.startedAt.atZone(zoneId).hour }.eachCount().maxWithOrNull(compareBy<Map.Entry<Int, Int>> { it.value }.thenByDescending { it.key })?.key,
-            peakHourCalls = calls.groupingBy { it.startedAt.atZone(zoneId).hour }.eachCount().maxOfOrNull { it.value } ?: 0,
+            peakHour = callsByHour.maxWithOrNull(compareBy<Map.Entry<Int, Int>> { it.value }.thenByDescending { it.key })?.key,
+            peakHourCalls = callsByHour.values.maxOrNull() ?: 0,
         )
     }
 }

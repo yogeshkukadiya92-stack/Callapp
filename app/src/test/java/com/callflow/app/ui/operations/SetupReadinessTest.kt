@@ -21,11 +21,11 @@ class SetupReadinessTest {
         assertEquals(1f, setupProgress(readyPermissions, 0, 0))
     }
 
-    @Test fun missingDefaultPhoneRoleIsBlocking() {
-        val permissions = readyPermissions.copy(callTracking = PermissionState.ROLE_MISSING)
+    @Test fun missingCallLogPermissionIsBlocking() {
+        val permissions = readyPermissions.copy(callLog = PermissionState.DENIED)
         val result = setupReadiness(permissions, failed = 0, conflicts = 0)
         assertFalse(result.ready)
-        assertEquals("Default phone setup required", result.title)
+        assertEquals("Call history permission required", result.title)
     }
 
     @Test fun failedSyncRecordsReduceReadinessAndShowRetryGuidance() {

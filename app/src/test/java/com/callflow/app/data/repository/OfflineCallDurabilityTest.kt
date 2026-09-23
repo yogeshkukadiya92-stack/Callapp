@@ -78,6 +78,27 @@ class OfflineCallDurabilityTest {
         assertEquals(SyncStatus.PENDING.name, outbox.single().status)
     }
 
+    @Test fun disconnect_time_is_not_extended_by_late_removal_callback() = runTest {
+        val dao = database.dao()
+        val start = now.toEpochMilli()
+        dao.insertCall(CallEntity("ended-once", null, null, "employee", null, "+919999999999", "OUTGOING", start, start + 5000, null, null, "PENDING"))
+        dao.markCallEnded("ended-once", start + 17000)
+        dao.markCallEnded("ended-once", start + 22000)
+        assertEquals(start + 17000, dao.observeCall("ended-once").first()?.endedAt)
+    }
+
+    @Test fun reconciled_call_cannot_absorb_a_second_call_to_same_number() = runTest {
+        val dao = database.dao()
+        val start = now.toEpochMilli()
+        val call = CallEntity("platform-first", null, null, "employee", null, "+919999999999", "OUTGOING", start, null, start + 5000, null, "PENDING")
+        dao.insertCall(call)
+        dao.insertCallEvent(CallEventEntity("marker-first", call.id, "SYSTEM_LOG:1:$start", start))
+        assertEquals(null, dao.findMatchingPlatformCall(call.normalizedPhone, call.direction, start + 10000, start - 120000, start + 120000))
+        dao.insertCall(call.copy(id = "platform-second", startedAt = start + 10000))
+        assertEquals("platform-second", dao.findMatchingPlatformCall(call.normalizedPhone, call.direction, start + 10000, start - 120000, start + 120000)?.id)
+        assertTrue(dao.hasSystemCallLogMarker("SYSTEM_LOG:1:$start"))
+    }
+
     @Test fun duplicate_outbox_event_rolls_back_the_entire_call_attempt() = runTest {
         val dao = database.dao()
         val duplicate = SyncEventEntity("event-1", "stable-event", "CALL", "existing", "CREATE", "{}", now.toEpochMilli(), 0, null, SyncStatus.PENDING.name, null)
@@ -102,6 +123,19 @@ class OfflineCallDurabilityTest {
         val saved = dao.syncEvents("CALL", "call-1").single()
         assertEquals(SyncStatus.SYNCED.name, saved.status)
         assertEquals(null, saved.lastError)
+    }
+
+    @Test fun server_acknowledgement_marks_outbox_and_call_record_synced_atomically() = runTest {
+        val dao = database.dao()
+        val call = CallEntity("ack-call", null, null, "employee", null, "+919999999999", CallDirection.OUTGOING.name, now.toEpochMilli(), null, now.toEpochMilli(), null, SyncStatus.PENDING.name)
+        val lifecycle = CallEventEntity("ack-lifecycle", call.id, "ENDED", now.toEpochMilli())
+        val event = SyncEventEntity("ack-event", "ack-event", "CALL", call.id, "CREATE", "{}", now.toEpochMilli(), 0, null, SyncStatus.PENDING.name, null)
+        dao.insertCallAttemptWithOutbox(call, lifecycle, event)
+
+        dao.markAccepted(listOf(event.eventUuid))
+
+        assertEquals(SyncStatus.SYNCED.name, dao.observeCall(call.id).first()?.syncStatus)
+        assertEquals(SyncStatus.SYNCED.name, dao.syncEvents("CALL", call.id).single().status)
     }
 
     @Test fun phase_one_dispositions_include_callback_and_custom_outcome() = runTest {
@@ -132,6 +166,15 @@ class OfflineCallDurabilityTest {
         assertTrue(events.single().payload.contains("Customer requested brochure"))
         assertTrue(repository.addCallNote("call-1", "lead-1", "   ").isFailure)
         assertTrue(repository.addCallNote("call-1", "lead-1", "x".repeat(501)).isFailure)
+    }
+
+    @Test fun unmatched_call_note_is_saved_without_fabricating_a_lead() = runTest {
+        val repository = OfflineCallRepository(database, database.dao(), clock)
+        repository.addCallNote("unmatched-call", null, "Talked for 12 seconds").getOrThrow()
+        val note = database.dao().observeCallNotes("unmatched-call").first().single()
+        assertEquals(null, note.leadId)
+        assertEquals("Talked for 12 seconds", note.body)
+        assertTrue(database.dao().syncEvents("NOTE", note.id).isEmpty())
     }
 
     @Test fun system_call_log_reconciles_platform_call_without_creating_a_duplicate() = runTest {
@@ -173,6 +216,7 @@ class OfflineCallDurabilityTest {
     @Test fun dashboard_lead_assignment_links_older_unmatched_calls_and_queues_audit_update() = runTest {
         val dao = database.dao()
         dao.insertCall(CallEntity("unmatched-call", null, null, "employee", null, "+919876543210", CallDirection.OUTGOING.name, now.toEpochMilli(), now.toEpochMilli(), now.plusSeconds(60).toEpochMilli(), null, SyncStatus.SYNCED.name))
+        OfflineCallRepository(database, dao, clock).addCallNote("unmatched-call", null, "Saved before assignment").getOrThrow()
         val cursorStore = SyncCursorStore(context)
         cursorStore.clear()
         val applier = DeltaSyncApplier(database, dao, cursorStore, clock)
@@ -191,6 +235,9 @@ class OfflineCallDurabilityTest {
         val update = dao.syncEvents("CALL", "unmatched-call").single()
         assertEquals("UPDATE", update.operation)
         assertTrue(update.payload.contains("matched_after_lead_assignment"))
+        val note = dao.observeCallNotes("unmatched-call").first().single()
+        assertEquals("lead-live", note.leadId)
+        assertTrue(dao.syncEvents("NOTE", note.id).single().createdAt > update.createdAt)
         assertEquals("cursor-phase-8", cursorStore.current())
     }
 

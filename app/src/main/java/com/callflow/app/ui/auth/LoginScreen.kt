@@ -66,5 +66,6 @@ fun LoginScreen(viewModel: LoginViewModel = hiltViewModel()) {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(top = 18.dp),
         )
+        WorkspaceSupport(allowConfiguration = true)
     }
 }

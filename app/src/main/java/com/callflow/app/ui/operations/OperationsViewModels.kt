@@ -28,20 +28,55 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
 import javax.inject.Inject
+import dagger.hilt.android.qualifiers.ApplicationContext
 import com.callflow.app.data.local.CallFlowDao
 import org.json.JSONArray
 import com.callflow.app.core.model.TimelineItem
 import com.callflow.app.telecom.PostCallCoordinator
 import com.callflow.app.telecom.PostCallTarget
 
-@HiltViewModel class CallsViewModel @Inject constructor(repository: CallRepository, leads: LeadRepository) : ViewModel() {
+@HiltViewModel class CallsViewModel @Inject constructor(
+    repository: CallRepository,
+    leads: LeadRepository,
+    private val contacts: com.callflow.app.core.contacts.DeviceContactResolver,
+    private val callLogImporter: com.callflow.app.telecom.CallLogImporter,
+    @ApplicationContext private val appContext: android.content.Context,
+) : ViewModel() {
+    private val refreshInProgress = MutableStateFlow(false)
+    val refreshingCallHistory = refreshInProgress
     val calls = repository.observeRecentCalls().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     val leadNames = leads.observeAllAssignedLeads().map { values -> values.associate { it.id to it.name } }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+    val contactNames = calls.map { callList ->
+        callList.take(40).map { it.phone }.distinct().mapNotNull { phone ->
+            contacts.resolveContactName(phone)?.let { name -> phone to name }
+        }.toMap()
+    }.flowOn(Dispatchers.IO)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
     val analysis = calls.map { values: List<CallRecord> -> CallAnalysisCalculator.calculate(values) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), CallAnalysis())
+
+    fun refreshCallHistory() {
+        if (refreshInProgress.value) return
+        viewModelScope.launch(Dispatchers.IO) {
+            refreshInProgress.value = true
+            try {
+                if (callLogImporter.importNewCalls() > 0) {
+                    com.callflow.app.sync.SyncWorker.syncNow(appContext)
+                }
+            } finally {
+                refreshInProgress.value = false
+            }
+        }
+    }
+
+    fun syncImportedCalls() {
+        com.callflow.app.sync.SyncWorker.syncNow(appContext)
+    }
 }
 
 @HiltViewModel class PostCallNavigationViewModel @Inject constructor(private val coordinator: PostCallCoordinator) : ViewModel() {
@@ -56,6 +91,7 @@ data class CallDetailsUiState(
     val notes: List<TimelineItem> = emptyList(),
     val saving: Boolean = false,
     val message: String? = null,
+    val contactName: String? = null,
 )
 
 @HiltViewModel
@@ -64,6 +100,8 @@ class CallDetailsViewModel @Inject constructor(
     private val calls: CallRepository,
     leads: LeadRepository,
     dao: CallFlowDao,
+    private val postCall: PostCallCoordinator,
+    private val contacts: com.callflow.app.core.contacts.DeviceContactResolver,
 ) : ViewModel() {
     private val callId: String = checkNotNull(savedStateHandle["callId"])
     private val saving = MutableStateFlow(false)
@@ -71,20 +109,47 @@ class CallDetailsViewModel @Inject constructor(
     private val call = calls.observeCall(callId)
     private val notes = dao.observeCallNotes(callId).map { values -> values.map { TimelineItem(it.id, "NOTE", java.time.Instant.ofEpochMilli(it.createdAt), "Call note", it.body) } }
     private val lead = combine(call, leads.observeAllAssignedLeads()) { value, allLeads -> allLeads.firstOrNull { it.id == value?.leadId } }
-    val state = combine(call, lead, notes, saving, message) { callValue, leadValue, noteValues, isSaving, resultMessage ->
-        CallDetailsUiState(false, callValue, leadValue, noteValues, isSaving, resultMessage)
+    private val contactName = call.map { value ->
+        kotlinx.coroutines.withContext(Dispatchers.IO) { value?.phone?.let(contacts::resolveContactName) }
+    }
+    val state = combine(call, lead, contactName, notes, saving) { callValue, leadValue, contactValue, noteValues, isSaving ->
+        CallDetailsUiState(false, callValue, leadValue, noteValues, isSaving, message.value, contactValue)
+    }.combine(message) { current, msg ->
+        current.copy(message = msg)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), CallDetailsUiState())
 
     fun addNote(body: String, onSaved: () -> Unit = {}) {
         val current = state.value
         val leadId = current.call?.leadId
-        if (leadId == null) { message.value = "Assign this number to a lead from the dashboard before adding notes."; return }
+        if (current.call == null) return
         if (saving.value) return
         viewModelScope.launch {
             saving.value = true; message.value = null
             calls.addCallNote(callId, leadId, body)
-                .onSuccess { message.value = "Saved and queued for dashboard sync"; onSaved() }
+                .onSuccess { postCall.complete(callId); message.value = if (leadId == null) "Saved on this device. Dashboard sync starts after lead assignment." else "Saved and queued for dashboard sync"; onSaved() }
                 .onFailure { message.value = it.message ?: "The note could not be saved." }
+            saving.value = false
+        }
+    }
+
+    fun saveResult(status: com.callflow.app.core.model.DispositionOption, body: String, followUpAt: java.time.Instant?, onSaved: () -> Unit) {
+        val current = state.value.call ?: return
+        if (saving.value) return
+        if (followUpAt != null && !followUpAt.isAfter(java.time.Instant.now())) {
+            message.value = "Choose a future follow-up date and time"
+            return
+        }
+        if (current.leadId == null) {
+            val summary = listOfNotNull("Status: ${status.name}", followUpAt?.let { "Next follow-up: $it" }, body.trim().takeIf { it.isNotEmpty() }).joinToString("\n")
+            addNote(summary, onSaved)
+            return
+        }
+        saving.value = true
+        message.value = null
+        viewModelScope.launch {
+            calls.saveDisposition(com.callflow.app.core.model.DispositionInput(callId, current.leadId, status, body, followUpAt))
+                .onSuccess { postCall.complete(callId); onSaved() }
+                .onFailure { message.value = it.message ?: "Could not save call details" }
             saving.value = false
         }
     }
@@ -104,9 +169,9 @@ data class TeamContentUiState(val announcements: List<TeamContentItem> = emptyLi
     val refreshing = MutableStateFlow(false)
     fun refresh() { if (refreshing.value) return; viewModelScope.launch { refreshing.value = true; sync.syncPending(); refreshing.value = false } }
 }
-data class ReportsUiState(val calls: List<CallRecord> = emptyList(), val leads: List<Lead> = emptyList(), val followUps: List<FollowUpRecord> = emptyList())
-@HiltViewModel class ReportsViewModel @Inject constructor(calls: CallRepository, leads: LeadRepository, followUps: FollowUpRepository, private val api: CallFlowApi) : ViewModel() {
-    val state = combine(calls.observeRecentCalls(), leads.observeAllAssignedLeads(), followUps.observeAll()) { callRows, leadRows, followUpRows -> ReportsUiState(callRows, leadRows, followUpRows) }
+data class ReportsUiState(val calls: List<CallRecord> = emptyList(), val leads: List<Lead> = emptyList(), val followUps: List<FollowUpRecord> = emptyList(),val exportAllowed:Boolean=true)
+@HiltViewModel class ReportsViewModel @Inject constructor(calls: CallRepository, leads: LeadRepository, followUps: FollowUpRepository, private val api: CallFlowApi,dao:CallFlowDao) : ViewModel() {
+    val state = combine(calls.observeRecentCalls(), leads.observeAllAssignedLeads(), followUps.observeAll(),dao.observeAppConfiguration()) { callRows, leadRows, followUpRows,configuration -> ReportsUiState(callRows, leadRows, followUpRows,!configuration.any { it.key=="subscription_access"&&it.value.contains("\"exportAllowed\":false") }) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ReportsUiState())
     val shiftSummary = MutableStateFlow<ShiftSummaryResponse?>(null)
     val shiftLoading = MutableStateFlow(true)
@@ -155,13 +220,11 @@ data class PermissionSummary(val callTracking: PermissionState, val notification
 data class SetupReadiness(val ready: Boolean, val title: String, val action: String)
 
 internal fun setupReadiness(permissions: PermissionSummary, failed: Int, conflicts: Int): SetupReadiness = when {
-    permissions.callTracking == PermissionState.ROLE_MISSING -> SetupReadiness(false, "Default phone setup required", "Set CallFlow as the default phone app to track complete call lifecycle.")
-    permissions.callLog != PermissionState.GRANTED -> SetupReadiness(false, "Call history permission required", "Allow call history so completed calls, SIM and duration can be reconciled.")
-    permissions.calling != PermissionState.GRANTED -> SetupReadiness(false, "Direct calling permission required", "Allow phone permission to call directly from assigned leads.")
+    permissions.callLog != PermissionState.GRANTED -> SetupReadiness(false, "Call history permission required", "Allow call history so completed calls, SIM and duration can be synced.")
     failed > 0 -> SetupReadiness(false, "$failed records need sync retry", "Connect to the internet and use Sync now. Local records remain safely stored.")
     conflicts > 0 -> SetupReadiness(false, "$conflicts sync conflicts detected", "Keep the app online and contact support if conflicts remain after sync.")
     permissions.notifications == PermissionState.DENIED || permissions.notifications == PermissionState.PERMANENTLY_DENIED -> SetupReadiness(true, "Calling is ready", "Enable notifications to receive due follow-up reminders.")
-    else -> SetupReadiness(true, "CallFlow is production ready", "Calling, automatic history and dashboard sync are configured.")
+    else -> SetupReadiness(true, "CallFlow is production ready", "Native phone calling, SIM filtering and automatic dashboard sync are active.")
 }
 data class AssignmentAvailabilityUiState(
     val acceptingLeads: Boolean? = null,
@@ -169,7 +232,16 @@ data class AssignmentAvailabilityUiState(
     val saving: Boolean = false,
     val error: String? = null,
 )
-@HiltViewModel class SyncStatusViewModel @Inject constructor(private val repository: SyncRepository, private val authRepository: AuthRepository, private val api: CallFlowApi, private val location: LocationCapture, private val permissionManager: PermissionManager, private val callIntegration: CallIntegrationManager, dao: CallFlowDao) : ViewModel() {
+@HiltViewModel class SyncStatusViewModel @Inject constructor(
+    private val repository: SyncRepository,
+    private val authRepository: AuthRepository,
+    private val api: CallFlowApi,
+    private val location: LocationCapture,
+    private val permissionManager: PermissionManager,
+    private val callIntegration: CallIntegrationManager,
+    private val dao: CallFlowDao,
+    private val simPreferenceStore: com.callflow.app.data.session.SimPreferenceStore,
+) : ViewModel() {
     val pending = repository.observePendingCount().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
     val conflicts = repository.observeConflictCount().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
     val health = repository.observeHealth().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SyncHealth())
@@ -177,11 +249,28 @@ data class AssignmentAvailabilityUiState(
     val syncing = MutableStateFlow(false)
     val assignmentAvailability = MutableStateFlow(AssignmentAvailabilityUiState())
     val permissions = MutableStateFlow(readPermissions())
+    val selectedSimSlot = simPreferenceStore.selectedSimSlot.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
+    val callingAccounts = MutableStateFlow(callIntegration.callingAccounts())
+
     fun roleIntent() = callIntegration.roleRequestIntent()
-    fun refreshPermissions() { permissions.value = readPermissions() }
+    fun refreshPermissions() {
+        permissions.value = readPermissions()
+        callingAccounts.value = callIntegration.callingAccounts()
+    }
+    fun selectSimSlot(slot: Int, subscriptionId: String? = null, label: String? = null) {
+        viewModelScope.launch {
+            simPreferenceStore.setSimSyncSlot(slot, subscriptionId, label)
+            if (slot in 1..2) {
+                dao.purgePendingCallSyncEventsForOtherSims(slot)
+            }
+        }
+    }
     private fun readPermissions() = PermissionSummary(permissionManager.callTrackingRole(), permissionManager.notifications(), permissionManager.callPermission(), permissionManager.callLogPermission())
     fun hasLocationPermission() = location.hasPermission()
-    init { refreshAssignmentAvailability() }
+    init {
+        refreshAssignmentAvailability()
+        callingAccounts.value = callIntegration.callingAccounts()
+    }
     fun refreshAssignmentAvailability() { viewModelScope.launch {
         assignmentAvailability.value = assignmentAvailability.value.copy(loading = true, error = null)
         runCatching { api.assignmentAvailability() }

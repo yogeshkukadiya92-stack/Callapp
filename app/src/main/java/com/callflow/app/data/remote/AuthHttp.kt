@@ -17,7 +17,7 @@ class AccessTokenInterceptor @Inject constructor(private val sessions: SessionTo
     override fun intercept(chain: Interceptor.Chain): Response {
         val request = chain.request()
         if (request.header("Authorization") != null) return chain.proceed(request)
-        val token = runBlocking { sessions.current()?.accessToken }
+        val token = runBlocking { sessions.current()?.takeIf { it.offlineValidUntilEpochMillis > System.currentTimeMillis() }?.accessToken }
         return chain.proceed(if (token.isNullOrBlank()) request else request.newBuilder().header("Authorization", "Bearer $token").build())
     }
 }
@@ -40,6 +40,10 @@ class RefreshTokenAuthenticator @Inject constructor(private val refreshApi: Refr
         if (response.responseCount() >= 2) return null
         return synchronized(lock) {
             val current = runBlocking { sessions.current() } ?: return@synchronized null
+            if (current.offlineValidUntilEpochMillis <= System.currentTimeMillis()) {
+                runBlocking { sessions.clear() }
+                return@synchronized null
+            }
             val requestToken = response.request.header("Authorization")?.removePrefix("Bearer ")
             if (requestToken != null && requestToken != current.accessToken) return@synchronized response.request.newBuilder().header("Authorization", "Bearer ${current.accessToken}").build()
             val refreshResult = runBlocking { runCatching { refreshApi.refresh(mapOf("refreshToken" to current.refreshToken)) } }
@@ -52,7 +56,7 @@ class RefreshTokenAuthenticator @Inject constructor(private val refreshApi: Refr
                 val saved = runBlocking {
                     sessions.saveIfCurrent(
                         expectedRefreshToken = current.refreshToken,
-                        value = current.copy(accessToken = refreshed.accessToken, refreshToken = refreshed.refreshToken),
+                        value = current.copy(accessToken = refreshed.accessToken, refreshToken = refreshed.refreshToken, offlineValidUntilEpochMillis = refreshed.offlineValidUntil?.let { runCatching { java.time.Instant.parse(it).toEpochMilli() }.getOrNull() } ?: current.offlineValidUntilEpochMillis),
                     )
                 }
                 if (saved) response.request.newBuilder().header("Authorization", "Bearer ${refreshed.accessToken}").build() else null

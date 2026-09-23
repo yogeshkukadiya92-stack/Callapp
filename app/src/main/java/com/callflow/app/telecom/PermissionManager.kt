@@ -17,11 +17,7 @@ class PermissionManager @Inject constructor(
     @ApplicationContext private val context: Context,
     private val calls: CallIntegrationManager,
 ) {
-    fun callTrackingRole(): PermissionState = when (calls.state()) {
-        CallIntegrationState.Ready -> PermissionState.GRANTED
-        CallIntegrationState.RoleRequired -> PermissionState.ROLE_MISSING
-        CallIntegrationState.ManualMode -> PermissionState.NOT_REQUIRED
-    }
+    fun callTrackingRole(): PermissionState = PermissionState.NOT_REQUIRED
 
     fun notifications(activity: Activity? = null): PermissionState {
         if (Build.VERSION.SDK_INT < 33) return PermissionState.NOT_REQUIRED
@@ -38,5 +34,10 @@ class PermissionManager @Inject constructor(
     fun callLogPermission(activity: Activity? = null): PermissionState {
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CALL_LOG) == PackageManager.PERMISSION_GRANTED) return PermissionState.GRANTED
         return if (activity != null && !ActivityCompat.shouldShowRequestPermissionRationale(activity, Manifest.permission.READ_CALL_LOG)) PermissionState.PERMANENTLY_DENIED else PermissionState.DENIED
+    }
+
+    fun contactsPermission(activity: Activity? = null): PermissionState {
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CONTACTS) == PackageManager.PERMISSION_GRANTED) return PermissionState.GRANTED
+        return if (activity != null && !ActivityCompat.shouldShowRequestPermissionRationale(activity, Manifest.permission.READ_CONTACTS)) PermissionState.PERMANENTLY_DENIED else PermissionState.DENIED
     }
 }

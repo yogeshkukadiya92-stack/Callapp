@@ -20,6 +20,7 @@ class CallFlowInCallService : InCallService() {
     @Inject lateinit var dao: com.callflow.app.data.local.CallFlowDao
     @Inject lateinit var normalizer: com.callflow.app.core.phone.PhoneNumberNormalizer
     @Inject lateinit var postCall: PostCallCoordinator
+    @Inject lateinit var identityResolver: CallerIdentityResolver
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     override fun onCreate() {
         super.onCreate()
@@ -30,15 +31,28 @@ class CallFlowInCallService : InCallService() {
         } }
     }
     override fun onDestroy() { scope.cancel(); controller.detachService(this); super.onDestroy() }
+    private fun resolveCaller(call: Call) {
+        val rawNumber = call.details.handle?.schemeSpecificPart
+            ?: call.details.gatewayInfo?.originalAddress?.schemeSpecificPart.orEmpty()
+        if (rawNumber.isNotBlank()) {
+            scope.launch {
+                val identity = identityResolver.resolve(rawNumber)
+                controller.setMatchedLeadName(rawNumber, identity.name)
+                notifications.show(controller.state.value)
+            }
+        }
+    }
+
     override fun onCallAdded(call: Call) {
         super.onCallAdded(call)
         controller.attachCall(call)
         tracker.onCallAdded(call)
-        val rawNumber = call.details.handle?.schemeSpecificPart.orEmpty()
-        scope.launch {
-            val normalized = normalizer.normalize(rawNumber) ?: rawNumber.filter(Char::isDigit)
-            controller.setMatchedLeadName(rawNumber, dao.findByPhone(normalized).firstOrNull()?.name)
-        }
+        resolveCaller(call)
+        call.registerCallback(object : Call.Callback() {
+            override fun onDetailsChanged(call: Call, details: Call.Details) {
+                resolveCaller(call)
+            }
+        })
         notifications.show(controller.state.value)
         runCatching { startActivity(android.content.Intent(this, InCallActivity::class.java).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_SINGLE_TOP)) }
     }

@@ -20,9 +20,14 @@ class CriticalCallingFlowTest {
     @Test
     fun loginHomeAndAssignedLeadsNavigationRemainUsable() {
         completeOnboardingAndLogin()
-        compose.onNodeWithText("TODAY’S CALLS").assertIsDisplayed()
+        compose.onAllNodesWithText("Analytics")[0].assertIsDisplayed()
         compose.onNodeWithTag("nav-leads").performClick()
         compose.waitUntil(30_000) { compose.onAllNodesWithText("Search assigned leads").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("Today").assertIsDisplayed()
+        compose.onNodeWithText("Custom").assertIsDisplayed().performClick()
+        compose.waitUntil(5_000) { compose.onAllNodesWithText("Custom date range").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("Custom date range").assertIsDisplayed()
+        compose.onNodeWithText("CANCEL").performClick()
     }
 
     private fun completeOnboardingAndLogin() {
@@ -34,6 +39,6 @@ class CriticalCallingFlowTest {
         compose.onNodeWithText("Mobile number or email").performTextInput("caller@example.com")
         compose.onNodeWithText("Password").performTextInput("demo1234")
         compose.onNodeWithText("SIGN IN").performClick()
-        compose.waitUntil(30_000) { compose.onAllNodesWithText("TODAY’S CALLS").fetchSemanticsNodes().isNotEmpty() }
+        compose.waitUntil(30_000) { compose.onAllNodesWithText("Analytics").fetchSemanticsNodes().isNotEmpty() }
     }
 }

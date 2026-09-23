@@ -16,7 +16,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 
 sealed interface CallIntegrationState { data object ManualMode : CallIntegrationState; data object RoleRequired : CallIntegrationState; data object Ready : CallIntegrationState }
-data class CallingAccount(val id: String, val label: String)
+data class CallingAccount(val id: String, val label: String, val slotIndex: Int? = null)
 
 interface CallIntegrationManager {
     fun state(): CallIntegrationState
@@ -26,30 +26,59 @@ interface CallIntegrationManager {
 }
 
 class SafeDialerCallIntegrationManager @Inject constructor(@ApplicationContext private val context: Context) : CallIntegrationManager {
-    override fun state(): CallIntegrationState {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return CallIntegrationState.ManualMode
-        val roles = context.getSystemService(RoleManager::class.java)
-        return if (!roles.isRoleAvailable(RoleManager.ROLE_DIALER)) CallIntegrationState.ManualMode else if (roles.isRoleHeld(RoleManager.ROLE_DIALER)) CallIntegrationState.Ready else CallIntegrationState.RoleRequired
-    }
-    override fun roleRequestIntent(): Intent? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-        context.getSystemService(RoleManager::class.java).takeIf { it.isRoleAvailable(RoleManager.ROLE_DIALER) }?.createRequestRoleIntent(RoleManager.ROLE_DIALER)
-    } else null
+    override fun state(): CallIntegrationState = CallIntegrationState.Ready
+    override fun roleRequestIntent(): Intent? = null
     override fun callingAccounts(): List<CallingAccount> = runCatching {
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.READ_PHONE_STATE) != PackageManager.PERMISSION_GRANTED) {
+            return@runCatching emptyList()
+        }
         val telecom = context.getSystemService(TelecomManager::class.java)
-        telecom.callCapablePhoneAccounts.mapIndexed { index, handle -> CallingAccount(handle.id, telecom.getPhoneAccount(handle)?.label?.toString()?.takeIf(String::isNotBlank) ?: "SIM ${index + 1}") }
+        val subscriptionManager = context.getSystemService(android.telephony.SubscriptionManager::class.java)
+        val subscriptions = subscriptionManager?.activeSubscriptionInfoList.orEmpty()
+        val accounts = telecom?.callCapablePhoneAccounts.orEmpty()
+        if (accounts.isNotEmpty()) {
+            accounts.mapIndexed { index, handle ->
+                val accountLabel = telecom?.getPhoneAccount(handle)?.label?.toString()?.takeIf(String::isNotBlank)
+                val sub = subscriptions.firstOrNull { it.subscriptionId.toString() == handle.id }
+                    ?: subscriptions.firstOrNull { it.iccId?.isNotBlank() == true && it.iccId == handle.id }
+                    ?: subscriptions.firstOrNull { it.simSlotIndex == index }
+                val slot = sub?.simSlotIndex?.plus(1) ?: (index + 1)
+                val label = sub?.displayName?.toString()?.takeIf(String::isNotBlank)
+                    ?: sub?.carrierName?.toString()?.takeIf(String::isNotBlank)
+                    ?: accountLabel
+                    ?: "SIM $slot"
+                CallingAccount(handle.id, label, slot)
+            }
+        } else if (subscriptions.isNotEmpty()) {
+            subscriptions.map { sub ->
+                val slot = sub.simSlotIndex + 1
+                val label = sub.displayName?.toString()?.takeIf(String::isNotBlank)
+                    ?: sub.carrierName?.toString()?.takeIf(String::isNotBlank)
+                    ?: "SIM $slot"
+                CallingAccount(sub.subscriptionId.toString(), label, slot)
+            }
+        } else emptyList()
     }.getOrDefault(emptyList())
 
     override fun initiateCall(phoneNumber: String, accountId: String?): Outcome<Unit> {
         val uri = Uri.parse("tel:${Uri.encode(phoneNumber)}")
-        if (state() == CallIntegrationState.Ready && ContextCompat.checkSelfPermission(context, Manifest.permission.CALL_PHONE) != PackageManager.PERMISSION_GRANTED) return Outcome.Failure(AppError.PermissionDenied)
         return try {
-            if (state() == CallIntegrationState.Ready) {
-                val telecom = context.getSystemService(TelecomManager::class.java)
-                val extras = Bundle()
-                accountId?.let { selected -> telecom.callCapablePhoneAccounts.firstOrNull { it.id == selected }?.let { extras.putParcelable(TelecomManager.EXTRA_PHONE_ACCOUNT_HANDLE, it) } }
-                telecom.placeCall(uri, extras)
+            val intent = if (ContextCompat.checkSelfPermission(context, Manifest.permission.CALL_PHONE) == PackageManager.PERMISSION_GRANTED) {
+                Intent(Intent.ACTION_CALL, uri).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    if (!accountId.isNullOrBlank()) {
+                        val telecom = context.getSystemService(TelecomManager::class.java)
+                        telecom?.callCapablePhoneAccounts?.firstOrNull { it.id == accountId }?.let { handle ->
+                            putExtra(TelecomManager.EXTRA_PHONE_ACCOUNT_HANDLE, handle)
+                        }
+                    }
+                }
+            } else {
+                Intent(Intent.ACTION_DIAL, uri).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
             }
-            else context.startActivity(Intent(Intent.ACTION_DIAL, uri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            context.startActivity(intent)
             Outcome.Success(Unit)
         } catch (error: SecurityException) {
             Outcome.Failure(AppError.PermissionDenied)

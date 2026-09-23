@@ -24,7 +24,16 @@ import com.callflow.app.core.model.DeviceStatus
 
 private val Context.sessionDataStore by preferencesDataStore("secure_session")
 
-data class StoredSession(val accessToken: String, val refreshToken: String, val employeeName: String, val deviceStatus: DeviceStatus = DeviceStatus.ACTIVE, val deviceId: String? = null, val employeePhone: String? = null)
+data class StoredSession(
+    val accessToken: String,
+    val refreshToken: String,
+    val employeeName: String,
+    val deviceStatus: DeviceStatus = DeviceStatus.ACTIVE,
+    val deviceId: String? = null,
+    val employeePhone: String? = null,
+    val accountId: String? = null,
+    val offlineValidUntilEpochMillis: Long = Long.MAX_VALUE,
+)
 
 interface SessionTokenStore {
     suspend fun save(value: StoredSession)
@@ -67,11 +76,11 @@ class EncryptedSessionStore @Inject constructor(@ApplicationContext private val 
         cacheLoaded = true
     }
 
-    private fun encode(value: StoredSession) = listOf(value.accessToken, value.refreshToken, value.employeeName, value.deviceStatus.name, value.deviceId.orEmpty(), value.employeePhone.orEmpty()).joinToString("\u001F") { Base64.getEncoder().encodeToString(it.toByteArray()) }
+    private fun encode(value: StoredSession) = listOf(value.accessToken, value.refreshToken, value.employeeName, value.deviceStatus.name, value.deviceId.orEmpty(), value.employeePhone.orEmpty(), value.accountId.orEmpty(), value.offlineValidUntilEpochMillis.toString()).joinToString("\u001F") { Base64.getEncoder().encodeToString(it.toByteArray()) }
     private fun decode(value: String): StoredSession {
         val fields = value.split("\u001F").map { String(Base64.getDecoder().decode(it)) }
-        require(fields.size == 3 || fields.size == 5 || fields.size == 6)
-        return StoredSession(fields[0], fields[1], fields[2], fields.getOrNull(3)?.let { runCatching { DeviceStatus.valueOf(it) }.getOrNull() } ?: DeviceStatus.ACTIVE, fields.getOrNull(4)?.ifBlank { null }, fields.getOrNull(5)?.ifBlank { null })
+        require(fields.size == 3 || fields.size == 5 || fields.size == 6 || fields.size == 8)
+        return StoredSession(fields[0], fields[1], fields[2], fields.getOrNull(3)?.let { runCatching { DeviceStatus.valueOf(it) }.getOrNull() } ?: DeviceStatus.ACTIVE, fields.getOrNull(4)?.ifBlank { null }, fields.getOrNull(5)?.ifBlank { null }, fields.getOrNull(6)?.ifBlank { null }, fields.getOrNull(7)?.toLongOrNull() ?: Long.MAX_VALUE)
     }
     private fun encrypt(value: String): String {
         val cipher = Cipher.getInstance(TRANSFORMATION); cipher.init(Cipher.ENCRYPT_MODE, key())

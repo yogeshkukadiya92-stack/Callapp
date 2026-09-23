@@ -38,4 +38,17 @@ class CallFlowMigrationTest {
     }
 
     companion object { private const val DATABASE_NAME = "migration-test" }
+
+    @Test fun migratesNotesToVersion8WithoutLosingExistingNotes() {
+        helper.createDatabase("notes-migration-test", 7).apply {
+            execSQL("INSERT INTO notes VALUES ('note-existing', 'lead-1', 'call-1', 'Keep this note', 1, 'user', 'device', 'PENDING')")
+            close()
+        }
+        helper.runMigrationsAndValidate("notes-migration-test", 8, true, CallFlowDatabase.MIGRATION_7_8).use { db ->
+            db.query("SELECT body FROM notes WHERE id = 'note-existing'").use { cursor ->
+                check(cursor.moveToFirst() && cursor.getString(0) == "Keep this note")
+            }
+            db.execSQL("INSERT INTO notes VALUES ('unmatched-note', NULL, 'call-2', 'Unmatched caller note', 2, 'user', 'device', 'PENDING')")
+        }
+    }
 }

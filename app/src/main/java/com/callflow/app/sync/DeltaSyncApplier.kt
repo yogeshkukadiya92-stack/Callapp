@@ -68,7 +68,14 @@ class DeltaSyncApplier @Inject constructor(private val database: CallFlowDatabas
 
     private suspend fun linkUnmatchedCalls(lead: LeadEntity) {
         dao.unmatchedCallsByPhone(lead.normalizedPhone).forEach { call ->
+            val matchedAt = clock.now().toEpochMilli()
             dao.linkCallToLead(call.id, lead.id, lead.campaignId)
+            dao.unmatchedCallNotes(call.id).forEach { note ->
+                dao.linkNoteToLead(note.id, lead.id)
+                val noteEventId = UUID.randomUUID().toString()
+                val payload = org.json.JSONObject().put("leadId", lead.id).put("callId", call.id).put("body", note.body).put("createdAt", note.createdAt).toString()
+                dao.insertSyncEvent(SyncEventEntity(noteEventId, noteEventId, "NOTE", note.id, "CREATE", payload, matchedAt + 1, 0, null, SyncStatus.PENDING.name, null))
+            }
             val eventId = UUID.randomUUID().toString()
             dao.insertSyncEvent(
                 SyncEventEntity(
@@ -78,7 +85,7 @@ class DeltaSyncApplier @Inject constructor(private val database: CallFlowDatabas
                     entityId = call.id,
                     operation = "UPDATE",
                     payload = "{\"callId\":\"${call.id}\",\"leadId\":\"${lead.id}\",\"campaignId\":${lead.campaignId?.let { "\"$it\"" } ?: "null"},\"reason\":\"matched_after_lead_assignment\"}",
-                    createdAt = clock.now().toEpochMilli(),
+                    createdAt = matchedAt,
                     attemptCount = 0,
                     lastAttemptAt = null,
                     status = SyncStatus.PENDING.name,
@@ -89,7 +96,14 @@ class DeltaSyncApplier @Inject constructor(private val database: CallFlowDatabas
     }
 }
 
-private fun LeadDeltaDto.toEntity() = LeadEntity(id, serverId, name, company, city, normalizedPhone, displayPhone, stageId, assignedUserId, campaignId, nextFollowUpAt, updatedAt, updatedBy, version, doNotCall, duplicateCount, score, quality)
+private fun LeadDeltaDto.toEntity() = LeadEntity(
+    id, serverId, name, company, city, normalizedPhone, displayPhone, stageId, assignedUserId,
+    campaignId, nextFollowUpAt, updatedAt, updatedBy, version, doNotCall, duplicateCount,
+    score.coerceIn(0, 100), quality, email, interest, state, country, assignedTo, bestTime,
+    revenuePotential.coerceAtLeast(0), createdAt, tags.pack(), sourceDetails.pack(), workshopsAttended.pack(),
+)
+
+private fun List<String>.pack(): String? = map(String::trim).filter(String::isNotBlank).takeIf(List<String>::isNotEmpty)?.joinToString("\u001F")
 private fun com.callflow.app.data.remote.FollowUpDeltaDto.toEntity() = FollowUpEntity(id, leadId, scheduledAt, note, priority, assignedTo, type, status, createdAt, updatedAt, version, SyncStatus.SYNCED.name)
 private fun LeadEntity.diagnosticPayload() = "{\"version\":$version,\"stageId\":\"${stageId.replace("\"", "") }\",\"updatedAt\":$updatedAt}"
 private fun LeadDeltaDto.diagnosticPayload() = "{\"version\":$version,\"stageId\":\"${stageId.replace("\"", "") }\",\"updatedAt\":$updatedAt}"

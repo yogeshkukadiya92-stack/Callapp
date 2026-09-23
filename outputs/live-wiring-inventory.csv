@@ -1,0 +1,21 @@
+Area,Component/File,Control Label,Control Type,Current Behavior,Expected Live Behavior,Backend/API/Route Needed,Auth/Role Needed,Status,Notes
+Auth,ui/auth/LoginScreen.kt,SIGN IN,Form submit,Calls AuthRepository,Create a real employee session,POST /auth/login,Salesperson,Verified,"Fake login is compile-time QA only"
+Device setup,ui/auth/DeviceAccessScreen.kt,CHECK AGAIN,Button,Refreshes device registration,Read server-authoritative device state,POST /devices/register,Salesperson,Verified,
+Analytics,ui/CallFlowApp.kt,Today / 7 days / 30 days,Filter chips,Filters Room call records,Show live period totals,Local synced call database,Salesperson,Verified,
+Analytics,ui/CallFlowApp.kt,Call metric cards,Clickable cards,Navigates to matching filter,Open filtered real Call History,filtered-calls/{kind},Salesperson,Fixed,"Bottom navigation remains available"
+Analytics,ui/CallFlowApp.kt,DIAL,Button,Opens manual dial,Start Android call flow,manual-dial route + Telecom,Salesperson,Verified,
+Calls,ui/operations/OperationsScreens.kt,History / Analysis,Tabs,Switches live call views,Show local+synced call analytics,Room CallRepository,Salesperson,Verified,
+Calls,ui/operations/OperationsScreens.kt,Search and filters,Inputs/chips,Filters actual calls,Filter by status direction duration SIM and dates,Room CallRepository,Salesperson,Verified,
+Calls,ui/operations/OperationsScreens.kt,Tap to add note,Inline action,Opens call note flow,Persist note then sync to dashboard,POST /sync/batch,Salesperson,Verified,
+Call details,ui/operations/CallDetailsScreen.kt,CALL BACK / WHATSAPP,Buttons,Launches platform intents,Contact customer with selected lead/number,Android Telecom / WhatsApp intent,Salesperson,Verified,
+Call result,ui/calling/CallingScreens.kt,SAVE RESULT,Form submit,Stores disposition and follow-up,Durable local save and idempotent sync,POST /sync/batch,Salesperson,Verified,
+Leads,ui/leads/LeadScreens.kt,Lead cards / search / filters,Cards and inputs,Uses assigned synced leads,Open real assigned lead details,GET /sync/changes,Salesperson,Verified,"Production rejects locally-created demo leads"
+Lead details,ui/leads/LeadScreens.kt,CALL / WhatsApp / acknowledge,Buttons,Uses real live lead record,Call engage or acknowledge handover,Telecom + POST /sync/batch,Salesperson,Verified,
+Follow-ups,ui/operations/OperationsScreens.kt,DONE / EDIT / CANCEL,Buttons and modal,Mutates local durable follow-up,Sync changed follow-up,POST /sync/batch,Salesperson,Verified,
+Meeting,ui/operations/OperationsScreens.kt,CHECK IN,Button,Captures one-time location,Send authenticated meeting check-in,POST /location/check-in,Salesperson,Verified,
+Reports,ui/operations/OperationsScreens.kt,Filters / CSV / PDF / Share,Controls,Uses current Room data,Export real permitted records,Local export + subscription config,Salesperson,Verified,
+Team Hub,ui/operations/OperationsScreens.kt,SYNC LATEST CONTENT,Button,Pulls delta sync,Refresh announcements/scripts,GET /sync/changes,Salesperson,Verified,
+Settings,ui/operations/OperationsScreens.kt,END SHIFT / RESUME,Button,Updates availability with location,Update server assignment eligibility,GET/POST /availability,Salesperson,Verified,
+Settings,ui/operations/OperationsScreens.kt,SYNC NOW,Button,Pulls deltas and flushes outbox,Two-way dashboard sync,GET /sync/changes + POST /sync/batch,Salesperson,Verified,
+More,ui/operations/OperationsScreens.kt,SIGN OUT,Destructive button,Shows confirmation then clears account,Revoke server session and clear local account data,POST /auth/logout,Salesperson,Verified,
+Background,CallFlowApplication.kt / SyncWorker.kt,Automatic sync,Worker,Imports calls and syncs periodically,Keep dashboard and phone state converged,Call log + sync APIs,Salesperson,Verified,"Network constrained; durable retries"

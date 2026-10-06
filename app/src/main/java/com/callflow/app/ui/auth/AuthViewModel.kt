@@ -53,7 +53,7 @@ internal fun loginErrorMessage(error: Throwable): String = when (error) {
         403 -> "Your Sales Access account or this device is not approved."
         404 -> "CallFlow login service is unavailable. Please contact support."
         429 -> "Too many sign-in attempts. Please wait and try again."
-        in 500..599 -> "Coach For Life server is temporarily unavailable. Please try again."
+        in 500..599 -> "Dashboard server is temporarily unavailable. Please try again."
         else -> "Sign in could not be completed. Please try again."
     }
     is IOException -> "Could not connect. Check your internet and try again."

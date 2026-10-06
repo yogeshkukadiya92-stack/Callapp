@@ -126,9 +126,6 @@ interface CallFlowDao {
     @Query("SELECT EXISTS(SELECT 1 FROM call_events WHERE type = :marker)")
     suspend fun hasSystemCallLogMarker(marker: String): Boolean
 
-    @Query("SELECT EXISTS(SELECT 1 FROM call_events WHERE type = :marker)")
-    suspend fun hasSystemCallLogMarker(marker: String): Boolean
-
     @Query("UPDATE calls SET leadId = COALESCE(leadId, :leadId), campaignId = COALESCE(campaignId, :campaignId), startedAt = :startedAt, answeredAt = :answeredAt, endedAt = :endedAt, failureReason = :failureReason, simSlot = :simSlot, simLabel = :simLabel, phoneAccountId = :phoneAccountId, syncStatus = 'PENDING' WHERE id = :id")
     suspend fun reconcileCallFromSystemLog(id: String, leadId: String?, campaignId: String?, startedAt: Long, answeredAt: Long?, endedAt: Long, failureReason: String?, simSlot: Int?, simLabel: String?, phoneAccountId: String?)
 

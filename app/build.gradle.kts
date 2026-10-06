@@ -14,8 +14,8 @@ android {
         applicationId = providers.gradleProperty("callflow.applicationId").orElse("com.callflow.app").get()
         minSdk = 26
         targetSdk = 35
-        versionCode = 17
-        versionName = "1.12.0"
+        versionCode = 18
+        versionName = "1.13.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         testInstrumentationRunnerArguments["clearPackageData"] = "true"
         vectorDrawables.useSupportLibrary = true

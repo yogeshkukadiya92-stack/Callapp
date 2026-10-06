@@ -9,6 +9,11 @@ import okhttp3.Response
 import javax.inject.Inject
 import javax.inject.Singleton
 
+enum class DashboardWorkspace(val title: String, val baseUrl: String, val connectorId: String) {
+    CFL("CFL Dashboard", "https://dashboard.coachforlife.in/api/callflow/", "cfl-dashboard"),
+    PDC("PDC Dashboard", "https://pdc.yogeshaihub.in/api/callflow/", "pdc-dashboard"),
+}
+
 @Singleton
 class CrmEndpoint @Inject constructor(@ApplicationContext context: Context) : Interceptor {
     private val prefs = context.getSharedPreferences("crm-endpoint", Context.MODE_PRIVATE)
@@ -21,6 +26,8 @@ class CrmEndpoint @Inject constructor(@ApplicationContext context: Context) : In
     val url: String get() = prefs.getString("url", BuildConfig.API_BASE_URL)!!
     val connector: String get() = prefs.getString("connector", BuildConfig.DASHBOARD_CONNECTOR_ID)!!
     val locked: Boolean get() = prefs.getBoolean("locked", false)
+    val workspace: DashboardWorkspace? get() = DashboardWorkspace.entries.firstOrNull { it.baseUrl == url && it.connectorId == connector }
+    fun configure(workspace: DashboardWorkspace) = configure(workspace.baseUrl, workspace.connectorId)
     @Synchronized fun configure(value: String, id: String) {
         check(!locked) { "CRM is locked after first connection to protect local records. Contact support to migrate." }
         val parsed = value.trim().toHttpUrl()

@@ -12,16 +12,38 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
+import com.callflow.app.data.remote.DashboardWorkspace
 
 @HiltViewModel
-class WorkspaceConfigViewModel @Inject constructor(val endpoint: com.callflow.app.data.remote.CrmEndpoint) : ViewModel()
+class WorkspaceConfigViewModel @Inject constructor(val endpoint: com.callflow.app.data.remote.CrmEndpoint) : ViewModel() {
+    var workspace by mutableStateOf(endpoint.workspace)
+        private set
+    fun refresh() { workspace = endpoint.workspace }
+    fun select(value: DashboardWorkspace) { endpoint.configure(value); refresh() }
+}
 
 @Composable
-fun WorkspaceSupport(allowConfiguration: Boolean = false, viewModel: WorkspaceConfigViewModel = hiltViewModel()) {
+fun DashboardSelector(enabled: Boolean, onChanged: () -> Unit, viewModel: WorkspaceConfigViewModel) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("Choose your dashboard", style = MaterialTheme.typography.titleSmall)
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            DashboardWorkspace.entries.forEach { workspace ->
+                FilterChip(selected = viewModel.workspace == workspace, onClick = {
+                    viewModel.select(workspace)
+                    onChanged()
+                }, enabled = enabled && !viewModel.endpoint.locked, label = { Text(workspace.title) })
+            }
+        }
+        Text(if (viewModel.endpoint.locked) "This phone stays connected to ${viewModel.workspace?.title ?: "your CRM"} to keep work records together." else "Choose the dashboard where your administrator created your account.", style = MaterialTheme.typography.bodySmall)
+    }
+}
+
+@Composable
+fun WorkspaceSupport(allowConfiguration: Boolean = false, viewModel: WorkspaceConfigViewModel = hiltViewModel(), onConnectionChanged: () -> Unit = {}) {
     val context = LocalContext.current
     var page by remember { mutableStateOf<String?>(null) }
-    var url by remember { mutableStateOf(viewModel.endpoint.url) }
-    var connector by remember { mutableStateOf(viewModel.endpoint.connector) }
+    var url by remember(viewModel.workspace) { mutableStateOf(viewModel.endpoint.url) }
+    var connector by remember(viewModel.workspace) { mutableStateOf(viewModel.endpoint.connector) }
     var error by remember { mutableStateOf<String?>(null) }
     Column {
         TextButton(onClick = { page = "CRM connection" }) { Text("CRM connection") }
@@ -35,7 +57,7 @@ fun WorkspaceSupport(allowConfiguration: Boolean = false, viewModel: WorkspaceCo
                     Text("Configure before the first connection. The destination is then locked to prevent mixing accounts or sending records to another CRM.")
                     OutlinedTextField(url, { url = it }, label = { Text("Connector base URL") }, enabled = allowConfiguration && !viewModel.endpoint.locked, modifier = Modifier.fillMaxWidth())
                     OutlinedTextField(connector, { connector = it }, label = { Text("Connector ID") }, enabled = allowConfiguration && !viewModel.endpoint.locked, modifier = Modifier.fillMaxWidth())
-                    if (allowConfiguration && !viewModel.endpoint.locked) Button(onClick = { runCatching { viewModel.endpoint.configure(url, connector) }.onSuccess { error = "Saved. Sign in with this CRM's account to verify authentication and sync." }.onFailure { error = it.message } }) { Text("SAVE CONNECTION") }
+                    if (allowConfiguration && !viewModel.endpoint.locked) Button(onClick = { runCatching { viewModel.endpoint.configure(url, connector) }.onSuccess { viewModel.refresh(); onConnectionChanged(); error = "Saved. Sign in with this CRM's account to verify authentication and sync." }.onFailure { error = it.message } }) { Text("SAVE CONNECTION") }
                     error?.let { Text(it) }
                 } else {
                     Text("CallFlow Privacy & Terms · 5 September 2026", style = MaterialTheme.typography.titleSmall)

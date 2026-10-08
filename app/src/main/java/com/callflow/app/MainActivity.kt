@@ -35,6 +35,7 @@ import kotlinx.coroutines.launch
 class MainActivity : ComponentActivity() {
     @Inject lateinit var callIntegration: CallIntegrationManager
     @Inject lateinit var callLogImporter: CallLogImporter
+    @Inject lateinit var postCallCoordinator: com.callflow.app.telecom.PostCallCoordinator
     private var dialNumber by mutableStateOf<String?>(null)
     private var hasResumedOnce = false
     private var callLogReconciliation: Job? = null
@@ -43,6 +44,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         callTrackingDisclosureAccepted = getSharedPreferences("callflow_privacy", MODE_PRIVATE).getBoolean("call_tracking_disclosure_v1", false)
         dialNumber = intent.takeIf { it.action == Intent.ACTION_DIAL }?.data?.schemeSpecificPart.orEmpty().takeIf(String::isNotEmpty)
+        handlePostCallIntent(intent)
         enableEdgeToEdge(statusBarStyle = androidx.activity.SystemBarStyle.dark(android.graphics.Color.TRANSPARENT), navigationBarStyle = androidx.activity.SystemBarStyle.dark(android.graphics.Color.rgb(25, 26, 30)))
         setContent {
             val externalDial = intent.action == Intent.ACTION_DIAL
@@ -61,7 +63,23 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    override fun onNewIntent(intent: Intent) { super.onNewIntent(intent); setIntent(intent); dialNumber = intent.data?.schemeSpecificPart }
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        dialNumber = intent.data?.schemeSpecificPart
+        handlePostCallIntent(intent)
+    }
+
+    private fun handlePostCallIntent(intent: Intent?) {
+        val targetCallId = intent?.getStringExtra("target_call_id")
+        if (!targetCallId.isNullOrBlank()) {
+            postCallCoordinator.setDirectTarget(targetCallId, intent.getStringExtra("target_lead_id"))
+            // A recreated activity must not replay an already handled notification tap.
+            intent.removeExtra("target_call_id")
+            intent.removeExtra("target_lead_id")
+            intent.removeExtra("open_post_call")
+        }
+    }
 
     override fun onResume() {
         super.onResume()

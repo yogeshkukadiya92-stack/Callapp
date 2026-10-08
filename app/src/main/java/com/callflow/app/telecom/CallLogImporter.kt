@@ -39,6 +39,9 @@ class CallLogImporter @Inject constructor(
     private val importMutex = Mutex()
     suspend fun importNewCalls(limit: Int = 250): Int = importMutex.withLock {
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CALL_LOG) != PackageManager.PERMISSION_GRANTED) return@withLock 0
+        // Ignore provisional call-log rows while a phone call is still active.
+        val activeCall = runCatching { context.getSystemService(TelecomManager::class.java)?.isInCall == true }.getOrDefault(false)
+        if (activeCall) return@withLock 0
         val lastImportedAt = cursorStore.lastImportedAt()
         val allowedSimSlot = simPreferenceStore.getSelectedSimSlot()
         val rows = readRows(lastImportedAt, limit)

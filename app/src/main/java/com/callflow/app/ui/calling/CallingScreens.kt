@@ -186,7 +186,7 @@ fun ManualDialScreen(
 }
 
 @Composable
-fun CallingScreen(onBack: () -> Unit, onCallStarted: (String, String) -> Unit, autoStart: Boolean = false, viewModel: CallingViewModel = hiltViewModel()) {
+fun CallingScreen(onBack: () -> Unit, autoStart: Boolean = false, viewModel: CallingViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val roleLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { viewModel.refreshRole() }
     val notificationLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { viewModel.roleIntent()?.let(roleLauncher::launch) }
@@ -194,31 +194,26 @@ fun CallingScreen(onBack: () -> Unit, onCallStarted: (String, String) -> Unit, a
     val lead = state.lead
     var confirmDuplicate by remember(lead?.id) { mutableStateOf(false) }
     var pendingDirectCall by remember { mutableStateOf(false) }
-    var autoStartHandled by remember { mutableStateOf(false) }
-    var completedCallHandled by remember(lead?.id) { mutableStateOf(false) }
+    androidx.activity.compose.BackHandler {
+        pendingDirectCall = false
+        confirmDuplicate = false
+        onBack()
+    }
     val callPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        if (granted && pendingDirectCall) lead?.let { viewModel.call { } }
+        if (granted && pendingDirectCall) lead?.let { viewModel.call() }
         pendingDirectCall = false
     }
     fun startCall() {
         if (state.integrationState == CallIntegrationState.Ready && !viewModel.hasDirectCallPermission()) {
             pendingDirectCall = true
             callPermissionLauncher.launch(Manifest.permission.CALL_PHONE)
-        } else viewModel.call { }
+        } else viewModel.call()
     }
     LaunchedEffect(autoStart, lead?.id) {
-        if (autoStart && lead != null && !autoStartHandled) {
-            autoStartHandled = true
+        if (autoStart && lead != null && viewModel.consumeAutoStart()) {
             if (!lead.doNotCall) {
                 if (lead.duplicateCount > 1) confirmDuplicate = true else startCall()
             }
-        }
-    }
-    LaunchedEffect(state.activeCall?.endedAt, state.callId) {
-        val completed = state.activeCall
-        if (!completedCallHandled && completed?.endedAt != null && state.callId != null && lead != null) {
-            completedCallHandled = true
-            onCallStarted(lead.id, checkNotNull(state.callId))
         }
     }
     if (confirmDuplicate && lead != null) {

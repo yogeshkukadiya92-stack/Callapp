@@ -69,6 +69,7 @@ fun CallDetailsScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    androidx.activity.compose.BackHandler(onBack = onBack)
     var note by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf("") }
     var showNotePopup by androidx.compose.runtime.saveable.rememberSaveable(showPostCallNote) { mutableStateOf(showPostCallNote) }
     val call = state.call

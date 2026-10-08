@@ -129,7 +129,7 @@ class ManualDialViewModel @Inject constructor(
 
 @HiltViewModel
 class CallingViewModel @Inject constructor(
-    savedStateHandle: SavedStateHandle,
+    private val savedStateHandle: SavedStateHandle,
     private val leads: LeadRepository,
     private val calls: CallRepository,
     private val integration: CallIntegrationManager,
@@ -157,6 +157,7 @@ class CallingViewModel @Inject constructor(
             }
         }
     }
+    fun consumeAutoStart(): Boolean = consumeCallAutoStart(savedStateHandle)
     fun roleIntent() = integration.roleRequestIntent()
     fun refreshRole() { mutable.value = mutable.value.copy(integrationState = integration.state()) }
     fun refreshCallLogPermission() {
@@ -164,7 +165,7 @@ class CallingViewModel @Inject constructor(
     }
     fun hasDirectCallPermission(): Boolean = permissions.callPermission() == PermissionState.GRANTED
     fun selectAccount(id: String?) { mutable.value = mutable.value.copy(selectedAccountId = id) }
-    fun call(onStarted: (String) -> Unit) {
+    fun call() {
         val lead = state.value.lead ?: return
         if(state.value.subscriptionReadOnly){mutable.value=mutable.value.copy(error="Subscription expired. Calling is read-only until renewal.");return}
         if (lead.doNotCall) {
@@ -179,12 +180,13 @@ class CallingViewModel @Inject constructor(
             }
             return
         }
-        viewModelScope.launch { calls.startOutgoingCall(lead).fold(onSuccess = { id ->
-            when (integration.initiateCall(lead.displayPhone, state.value.selectedAccountId)) {
-                is Outcome.Success -> { mutable.value = mutable.value.copy(callId = id); onStarted(id) }
-                is Outcome.Failure -> mutable.value = mutable.value.copy(error = "Could not start the call.")
-            }
-        }, onFailure = { mutable.value = mutable.value.copy(error = "Could not prepare this call") }) }
+        // The native dialer owns the call lifecycle. Launching it is not proof
+        // that a call was placed; the call-log importer creates the real record
+        // and opens the post-call note only after the phone call has finished.
+        when (integration.initiateCall(lead.displayPhone, state.value.selectedAccountId)) {
+            is Outcome.Success -> mutable.value = mutable.value.copy(error = null)
+            is Outcome.Failure -> mutable.value = mutable.value.copy(error = "Could not start the call. Check phone permission and your selected SIM.")
+        }
     }
 }
 
@@ -266,3 +268,9 @@ internal fun String.isSupportedMeetingLink(): Boolean = runCatching {
     val host = uri.host?.lowercase().orEmpty()
     uri.scheme.equals("https", true) && (host == "meet.google.com" || host == "zoom.us" || host.endsWith(".zoom.us"))
 }.getOrDefault(false)
+
+internal fun consumeCallAutoStart(state: SavedStateHandle): Boolean {
+    if (state.get<Boolean>("auto_call_started") == true) return false
+    state["auto_call_started"] = true
+    return true
+}

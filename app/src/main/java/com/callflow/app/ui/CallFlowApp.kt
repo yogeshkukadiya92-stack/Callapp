@@ -147,7 +147,14 @@ private fun MainNavigation(employeeName: String, employeePhone: String?, onLogou
     androidx.compose.runtime.LaunchedEffect(postCallTarget) {
         postCallTarget?.let { target ->
             val route = "call-details/${target.callId}?postCall=true"
-            nav.navigate(route) { launchSingleTop = true }
+            nav.navigate(route) {
+                // Do not leave an auto-start calling screen under the result.
+                // Returning to it could launch the same lead call again.
+                nav.currentBackStackEntry?.destination?.route
+                    ?.takeIf { it == "call/{leadId}" || it == "call-now/{leadId}" || it.startsWith("call-details/") }
+                    ?.let { previous -> popUpTo(previous) { inclusive = true } }
+                launchSingleTop = true
+            }
             postCallViewModel.consume(target)
         }
     }
@@ -190,8 +197,8 @@ private fun MainNavigation(employeeName: String, employeePhone: String?, onLogou
             composable("home") { HomeScreen(employeeName = employeeName, onDialNumber = { nav.navigate("manual-dial") }, onOpenMetric = { nav.navigate("filtered-calls/$it") }) }
             composable("leads") { LeadsScreen(onLeadClick = { nav.navigate("lead/$it") }, onCallLead = { nav.navigate("call-now/$it") }) }
             composable("lead/{leadId}", arguments = listOf(navArgument("leadId") { type = NavType.StringType })) { LeadDetailScreen(onBack = { nav.navigateUp() }, onCall = { nav.navigate("call/$it") }) }
-            composable("call/{leadId}", arguments = listOf(navArgument("leadId") { type = NavType.StringType })) { CallingScreen(onBack = { nav.navigateUp() }, onCallStarted = { _, callId -> nav.navigate("call-details/$callId?postCall=true") { launchSingleTop = true } }) }
-            composable("call-now/{leadId}", arguments = listOf(navArgument("leadId") { type = NavType.StringType })) { CallingScreen(onBack = { nav.navigateUp() }, autoStart = true, onCallStarted = { _, callId -> nav.navigate("call-details/$callId?postCall=true") { launchSingleTop = true } }) }
+            composable("call/{leadId}", arguments = listOf(navArgument("leadId") { type = NavType.StringType })) { CallingScreen(onBack = { nav.navigateUp() }) }
+            composable("call-now/{leadId}", arguments = listOf(navArgument("leadId") { type = NavType.StringType })) { CallingScreen(onBack = { nav.navigateUp() }, autoStart = true) }
             composable("disposition/{leadId}/{callId}", arguments = listOf(navArgument("leadId") { type = NavType.StringType }, navArgument("callId") { type = NavType.StringType })) { DispositionScreen(onBack = { nav.navigateUp() }, onSaved = { nav.navigate("calls") { popUpTo("home") } }, onSaveNext = { nextLeadId -> if (nextLeadId == null) navigateTopLevel("leads") else nav.navigate("call/$nextLeadId") { popUpTo("home") } }) }
             composable("calls") { CallsScreen(onDialNumber = { nav.navigate("manual-dial") }, onOpenCall = { nav.navigate("call-details/$it") }, onAddNote = { nav.navigate("call-details/$it?postCall=true") }) }
             composable("connected-calls") { CallsScreen(initialFilter = "Connected", onDialNumber = { nav.navigate("manual-dial") }, onOpenCall = { nav.navigate("call-details/$it") }, onAddNote = { nav.navigate("call-details/$it?postCall=true") }) }
@@ -206,7 +213,13 @@ private fun MainNavigation(employeeName: String, employeePhone: String?, onLogou
                     onAddNote = { nav.navigate("call-details/$it?postCall=true") },
                 )
             }
-            composable("call-details/{callId}?postCall={postCall}", arguments = listOf(navArgument("callId") { type = NavType.StringType }, navArgument("postCall") { type = NavType.BoolType; defaultValue = false })) { entry -> CallDetailsScreen(onBack = { nav.navigateUp() }, onOpenLead = { nav.navigate("lead/$it") }, showPostCallNote = entry.arguments?.getBoolean("postCall") == true, onAddResult = { leadId, callId -> nav.navigate("disposition/$leadId/$callId") }) }
+            composable("call-details/{callId}?postCall={postCall}", arguments = listOf(navArgument("callId") { type = NavType.StringType }, navArgument("postCall") { type = NavType.BoolType; defaultValue = false })) { entry -> CallDetailsScreen(onBack = {
+                if (entry.arguments?.getBoolean("postCall") == true) {
+                    nav.navigate("calls") { popUpTo("home"); launchSingleTop = true }
+                } else if (!nav.navigateUp()) {
+                    nav.navigate("calls") { launchSingleTop = true }
+                }
+            }, onOpenLead = { nav.navigate("lead/$it") }, showPostCallNote = entry.arguments?.getBoolean("postCall") == true, onAddResult = { leadId, callId -> nav.navigate("disposition/$leadId/$callId") }) }
             composable("manual-dial") { ManualDialScreen(onBack = { nav.navigateUp() }, onOpenLeadCall = { nav.navigate("call/$it") }) }
             composable("followups") { FollowUpsScreen(onOpenLead = { nav.navigate("lead/$it") }, onCallLead = { nav.navigate("call/$it") }) }
             composable("more") { MoreScreen(employeeName = employeeName, employeePhone = employeePhone, onProfile = { nav.navigate("profile") }, onReports = { nav.navigate("reports") }, onTeamContent = { nav.navigate("team-content") }, onSettings = { nav.navigate("settings") }, onLogout = onLogout) }

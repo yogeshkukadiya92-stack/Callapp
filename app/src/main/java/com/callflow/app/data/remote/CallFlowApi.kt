@@ -132,7 +132,23 @@ data class DeltaSyncResponse(
     val serverTimestamp: String,
 )
 
+@JsonClass(generateAdapter = true)
+data class IntroductionInvitationDto(val registrationId: String, val leadId: String, val sessionId: String, val sessionTitle: String, val sessionDate: String, val workshopTitle: String, val status: String = "pending")
+@JsonClass(generateAdapter = true)
+data class IntroductionInvitationsResponse(val invitations: List<IntroductionInvitationDto> = emptyList(), val statusOptions: List<IntroductionStatusDto> = defaultIntroductionStatuses())
+@JsonClass(generateAdapter = true)
+data class IntroductionStatusDto(val id: String, val label: String, val isConfirmed: Boolean = false, val active: Boolean = true)
+fun defaultIntroductionStatuses() = listOf(
+    IntroductionStatusDto("pending", "Pending"), IntroductionStatusDto("confirmed", "Confirmed", true),
+    IntroductionStatusDto("not_confirmed", "Not confirmed"), IntroductionStatusDto("no_answer", "No answer"),
+    IntroductionStatusDto("callback", "Call back"), IntroductionStatusDto("cancelled", "Cancelled"),
+)
+@JsonClass(generateAdapter = true)
+data class IntroductionConfirmationRequest(val leadId: String, val registrationId: String, val status: String)
+
 interface CallFlowApi {
+    @GET("introduction-sessions") suspend fun introductionInvitations(): IntroductionInvitationsResponse
+    @POST("introduction-sessions") suspend fun confirmIntroduction(@Body request: IntroductionConfirmationRequest): IntroductionInvitationsResponse
     @POST("auth/login") suspend fun login(@Body request: LoginRequest): TokenResponse
     @POST("auth/refresh") suspend fun refresh(@Body refreshToken: Map<String, String>): TokenResponse
     @POST("auth/logout") suspend fun logout()

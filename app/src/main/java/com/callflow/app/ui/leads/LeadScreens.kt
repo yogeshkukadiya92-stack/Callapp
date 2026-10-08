@@ -76,6 +76,7 @@ private val leadDateFormatter = DateTimeFormatter.ofPattern("dd MMM yyyy")
 @Composable
 fun LeadsScreen(onLeadClick: (String) -> Unit, onCallLead: (String) -> Unit, viewModel: LeadsViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    androidx.compose.runtime.LaunchedEffect(Unit) { viewModel.refreshInvitations() }
     val context = LocalContext.current
     var filterMenuOpen by remember { mutableStateOf(false) }
     var advancedFiltersOpen by remember { mutableStateOf(false) }
@@ -105,6 +106,8 @@ fun LeadsScreen(onLeadClick: (String) -> Unit, onCallLead: (String) -> Unit, vie
             text = {
                 Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text("Combine filters to narrow large lead lists.", color = Slate)
+                    IntroductionSessionDropdown(state.invitations, state.selectedSession, viewModel::setSession)
+                    IntroductionStatusDropdown("Session confirmation", state.selectedConfirmation, state.statusOptions, true, viewModel::setConfirmation)
                     LeadFilterDropdown("Source", state.selectedSource, listOf("ALL") + state.sources, viewModel::setSource)
                     LeadFilterDropdown("Lead quality", state.selectedQuality, listOf("ALL") + state.qualities, viewModel::setQuality)
                     LeadFilterDropdown("Lead score", state.selectedScore, listOf("ALL", "0-25", "26-50", "51-75", "76-100"), viewModel::setScore)
@@ -172,6 +175,11 @@ fun LeadsScreen(onLeadClick: (String) -> Unit, onCallLead: (String) -> Unit, vie
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
+        Text(if (state.invitationError == null) "Introduction sessions · ${state.confirmedCount} confirmed in current results" else "Introduction session confirmations unavailable", color = Indigo, style = MaterialTheme.typography.labelMedium)
+        state.invitationError?.let { error ->
+            Text(error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+            androidx.compose.material3.TextButton(onClick = viewModel::refreshInvitations) { Text("RETRY SESSIONS") }
+        }
         Row(Modifier.fillMaxWidth().padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
             OutlinedTextField(
                 state.query,
@@ -318,6 +326,7 @@ fun LeadDetailScreen(onBack: () -> Unit, onCall: (String) -> Unit, viewModel: Le
     val context = LocalContext.current
     if (state.loading) return Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.Center, horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally) { CircularProgressIndicator(); Text("Loading lead…", color = Slate, modifier = Modifier.padding(top = 12.dp)) }
     val lead = state.lead ?: return Column(Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally) { Text("Lead unavailable", style = MaterialTheme.typography.titleLarge); Text("This lead may have been reassigned or removed during sync.", color = Slate, modifier = Modifier.padding(top = 8.dp)); androidx.compose.material3.OutlinedButton(onClick = onBack, modifier = Modifier.padding(top = 18.dp)) { Text("BACK TO LEADS") } }
+
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(horizontal = 20.dp, vertical = 22.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         item { Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Back") }; Text("Lead details", style = MaterialTheme.typography.titleLarge) } }
         item { PremiumCard(Modifier.fillMaxWidth()) { Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) { Text(lead.name, style = MaterialTheme.typography.headlineMedium); lead.company?.let { Text(it, style = MaterialTheme.typography.titleMedium, color = Slate) }; Text(lead.displayPhone, color = Indigo); Surface(color = MaterialTheme.colorScheme.primaryContainer, shape = androidx.compose.foundation.shape.RoundedCornerShape(99.dp)) { Text(lead.stageId.replace('_', ' ').uppercase(), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onPrimaryContainer, modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)) } } } }
@@ -337,6 +346,23 @@ fun LeadDetailScreen(onBack: () -> Unit, onCall: (String) -> Unit, viewModel: Le
             LeadInfoRow("Created", lead.createdAt?.let(::leadContactTime))
             LeadInfoRow("Last updated", leadContactTime(lead.updatedAt))
         } } }
+        item { SectionHeader("Introduction sessions", "Invitation & call confirmation") }
+        state.invitationError?.let { error -> item {
+            Text(error, color = MaterialTheme.colorScheme.error)
+            androidx.compose.material3.TextButton(onClick = viewModel::refreshInvitations) { Text("RETRY") }
+        } }
+        if (state.invitations.isEmpty() && state.invitationError == null) item { Text("No introduction session invitation recorded.", color = Slate) }
+        items(state.invitations, key = { "invite-${it.registrationId}" }) { invite ->
+            PremiumCard(Modifier.fillMaxWidth()) { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(invite.sessionTitle, fontWeight = FontWeight.Bold)
+                Text("${invite.workshopTitle} · ${invite.sessionDate}", color = Slate)
+                Text("Invited · ${state.statusOptions.find { it.id == invite.status }?.label ?: invite.status.replace('_', ' ')}", color = Indigo)
+                IntroductionStatusDropdown("Call confirmation", invite.status, state.statusOptions.filter { it.active || it.id == invite.status }, false) { status ->
+                    if (!state.confirmationSaving) viewModel.confirmIntroduction(invite.registrationId, status)
+                }
+                if (state.confirmationSaving) Text("Saving confirmation…", color = Slate)
+            } }
+        }
         item { SectionHeader("Workshop history", "${lead.workshopsAttended.size} records") }
         if (lead.workshopsAttended.isEmpty()) item { Text("No workshop attendance recorded in CRM.", color = Slate, style = MaterialTheme.typography.bodyMedium) }
         items(lead.workshopsAttended, key = { "workshop-$it" }) { workshop ->
@@ -385,3 +411,33 @@ private fun workshopDateLabel(value: String): String {
 }
 private fun leadDuration(seconds: Long): String { val safe = seconds.coerceAtLeast(0); val hours = safe / 3600; val minutes = safe % 3600 / 60; val remainder = safe % 60; return if (hours > 0) "${hours}h ${minutes}m" else if (minutes > 0) "${minutes}m ${remainder}s" else "${remainder}s" }
 private fun leadContactTime(value: java.time.Instant) = DateTimeFormatter.ofPattern("dd MMM yyyy, hh:mm a").withZone(ZoneId.systemDefault()).format(value)
+
+@Composable
+private fun IntroductionSessionDropdown(invitations: List<com.callflow.app.data.remote.IntroductionInvitationDto>, selected: String, onSelect: (String) -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    val sessions = invitations.distinctBy { it.sessionId }
+    fun label(id: String): String = sessions.find { it.sessionId == id }?.let { "${it.workshopTitle} · ${it.sessionTitle} · ${it.sessionDate}" } ?: "All sessions"
+    Column {
+        Text("Introduction session", style = MaterialTheme.typography.labelMedium, color = Slate)
+        Box {
+            OutlinedButton(onClick = { open = true }, modifier = Modifier.fillMaxWidth()) { Text(label(selected)) }
+            DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+                DropdownMenuItem(text = { Text("All sessions") }, onClick = { onSelect("ALL"); open = false })
+                sessions.forEach { session -> DropdownMenuItem(text = { Text(label(session.sessionId)) }, onClick = { onSelect(session.sessionId); open = false }) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun IntroductionStatusDropdown(label: String, selected: String, options: List<com.callflow.app.data.remote.IntroductionStatusDto>, allowAll: Boolean, onSelect: (String) -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    val selectedLabel = if (selected == "ALL") "All" else options.find { it.id == selected }?.label ?: selected.replace('_', ' ')
+    Box(Modifier.fillMaxWidth()) {
+        OutlinedButton(onClick = { open = true }, modifier = Modifier.fillMaxWidth()) { Text("$label: $selectedLabel") }
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            if (allowAll) DropdownMenuItem(text = { Text("All") }, onClick = { onSelect("ALL"); open = false })
+            options.forEach { option -> DropdownMenuItem(text = { Text(option.label) }, onClick = { onSelect(option.id); open = false }) }
+        }
+    }
+}

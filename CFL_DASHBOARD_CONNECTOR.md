@@ -171,3 +171,15 @@ CFLDashboard should handle:
 - Reporting for calls, outcomes, follow-ups, pending sync, and per-user performance.
 
 Android should not store third-party CRM tokens or implement CRM-specific APIs directly.
+
+## Introduction session confirmation
+
+Deploy `GET` and `POST /introduction-sessions` with the Android update. GET returns invitations for assigned CFL leads matched to workshop registrations with an `introductionSessionId`. Each row contains `registrationId`, `leadId`, a workshop-scoped `sessionId`, `sessionTitle`, `sessionDate`, `workshopTitle`, and `status`. POST accepts `{ "leadId": "...", "registrationId": "...", "status": "confirmed" }` and returns the refreshed list after saving the registration confirmation and audit history. Supported call outcomes: pending, confirmed, not_confirmed, no_answer, callback, cancelled.
+
+The Leads filter matches session and status on the same invitation. Counts represent unique leads in the current filtered results, including results beyond the displayed row limit. Saving requires a network connection; failed updates remain visible as errors. Confirmation records existing call consent and does not trigger WhatsApp messages or workshop enrollment. The original CFL workspace is supported; company workspaces using the central tenant CRM need a tenant-scoped workshop connector before this endpoint can serve their sessions.
+
+## Configurable session statuses
+
+Settings → CallFlow Content → Introduction session statuses allows custom labels (including Gujarati), new statuses, and inactive statuses. Status ids remain stable when renamed, so historical registrations retain their status. Names must be non-empty and unique. Existing statuses cannot be removed; deactivate unused choices instead. Default statuses retain their confirmation meaning. A custom status can be marked `isConfirmed` to include it in the mobile session confirmation count. This count flag does not trigger workshop enrollment or notification automation.
+
+Configuration is stored in `integrations.callFlowContent.introductionStatuses`; GET/POST `/api/admin/callflow-content` reads and updates it. A status-only POST preserves other content. `/api/callflow/introduction-sessions` returns `statusOptions` alongside invitations. Both the dashboard follow-up editor and mobile app show these configured labels. Inactive statuses remain available for historical filters and can be retained while editing an existing note, but cannot be newly assigned. Deploy dashboard source changes and install the updated APK together.

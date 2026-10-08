@@ -258,32 +258,33 @@ private fun LeadRow(
     onClick: () -> Unit,
     onCall: () -> Unit,
 ) {
+    var showAdditionalInfo by remember { mutableStateOf(false) }
     val context = LocalContext.current
     val secondary = MaterialTheme.colorScheme.onSurfaceVariant
     val dateFormat = remember { DateTimeFormatter.ofPattern("dd MMM yyyy").withZone(ZoneId.systemDefault()) }
     val status = invitations.map { invite -> statusOptions.find { it.id == invite.status }?.label ?: invite.status.replace('_', ' ') }.distinct().joinToString(" · ").ifBlank { lead.stageId.displayStage() }
     PremiumCard(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            Row(Modifier.fillMaxWidth().clickable(onClick = onClick).semantics { contentDescription = "View lead ${lead.name}" }, horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                Surface(shape = CircleShape, color = MaterialTheme.colorScheme.surfaceContainerHighest, modifier = Modifier.size(52.dp)) {
-                    Box(contentAlignment = androidx.compose.ui.Alignment.Center) { Text(lead.name.trim().firstOrNull()?.uppercase() ?: "?", style = MaterialTheme.typography.titleLarge, color = secondary) }
+        Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Row(Modifier.fillMaxWidth().clickable(onClick = onClick).semantics { contentDescription = "View lead ${lead.name}" }, horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                Surface(shape = CircleShape, color = MaterialTheme.colorScheme.surfaceContainerHighest, modifier = Modifier.size(40.dp)) {
+                    Box(contentAlignment = androidx.compose.ui.Alignment.Center) { Text(lead.name.trim().firstOrNull()?.uppercase() ?: "?", style = MaterialTheme.typography.titleMedium, color = secondary) }
                 }
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                    Text(lead.name, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) { Icon(Icons.Outlined.Call, null, Modifier.size(16.dp), tint = secondary); Text(lead.displayPhone, style = MaterialTheme.typography.bodyMedium, color = secondary) }
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(lead.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Row(horizontalArrangement = Arrangement.spacedBy(3.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) { Icon(Icons.Outlined.Call, null, Modifier.size(16.dp), tint = secondary); Text(lead.displayPhone, style = MaterialTheme.typography.bodyMedium, color = secondary) }
                 }
                 lead.serverId?.takeIf { it.all(Char::isDigit) && it.length <= 10 }?.let { Text("#$it", style = MaterialTheme.typography.labelMedium, color = secondary) }
             }
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text("Status", fontWeight = FontWeight.Bold)
-                    Text(status, color = MaterialTheme.colorScheme.primary)
-                    Spacer(Modifier.height(5.dp))
-                    Text("Reminder at", fontWeight = FontWeight.Bold)
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Text("Status", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                    Text(status, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)
+                    Spacer(Modifier.height(2.dp))
+                    Text("Reminder at", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
                     Text(lead.nextFollowUpAt?.let { leadContactTime(it) } ?: "No reminder", color = secondary, style = MaterialTheme.typography.bodySmall)
                 }
-                Box(Modifier.width(1.dp).height(120.dp)) { Surface(color = MaterialTheme.colorScheme.outlineVariant, modifier = Modifier.fillMaxSize()) {} }
-                Column(Modifier.weight(1.25f), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                Box(Modifier.width(1.dp).height(104.dp)) { Surface(color = MaterialTheme.colorScheme.outlineVariant, modifier = Modifier.fillMaxSize()) {} }
+                Column(Modifier.weight(1.25f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     LeadCardFact("Attempts", (stats?.attempts ?: 0).toString())
                     LeadCardFact("Assigned on", "—")
                     LeadCardFact("Created on", lead.createdAt?.let(dateFormat::format) ?: "—")
@@ -299,11 +300,15 @@ private fun LeadRow(
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             Text(stats?.lastContactedAt?.let { "Last call ${leadContactTime(it)}" } ?: "No call has been made by you", modifier = Modifier.fillMaxWidth(), textAlign = androidx.compose.ui.text.style.TextAlign.Center, style = MaterialTheme.typography.bodySmall, fontStyle = androidx.compose.ui.text.font.FontStyle.Italic, color = secondary)
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-            Text("Additional info", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                LeadAdditionalInfo("Company", lead.company)
-                LeadAdditionalInfo("Email", lead.email)
-                LeadAdditionalInfo("City", lead.city)
+            androidx.compose.material3.TextButton(onClick = { showAdditionalInfo = !showAdditionalInfo }, modifier = Modifier.fillMaxWidth()) {
+                Text(if (showAdditionalInfo) "Hide additional info" else "Show additional info", style = MaterialTheme.typography.labelMedium)
+            }
+            if (showAdditionalInfo) {
+                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    LeadAdditionalInfo("Company", lead.company)
+                    LeadAdditionalInfo("Email", lead.email)
+                    LeadAdditionalInfo("City", lead.city)
+                }
             }
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -325,16 +330,16 @@ private fun LeadRow(
 
 @Composable
 private fun LeadCardFact(label: String, value: String) {
-    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-        Text(label, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(label, modifier = Modifier.weight(1f), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
         Text(value, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
 @Composable
 private fun LeadAdditionalInfo(label: String, value: String?) {
-    Surface(shape = RoundedCornerShape(10.dp), color = MaterialTheme.colorScheme.surfaceContainerLowest, modifier = Modifier.width(148.dp).height(108.dp)) {
-        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Surface(shape = RoundedCornerShape(10.dp), color = MaterialTheme.colorScheme.surfaceContainerLowest, modifier = Modifier.width(140.dp).height(82.dp)) {
+        Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(label, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelLarge)
             Text(value?.takeIf(String::isNotBlank) ?: "Not provided", style = MaterialTheme.typography.bodySmall, maxLines = 3, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }

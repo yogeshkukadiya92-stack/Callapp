@@ -5,6 +5,9 @@ import android.net.Uri
 import android.widget.Toast
 import android.app.DatePickerDialog
 
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -17,12 +20,16 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.ContentCopy
+import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.ChatBubbleOutline
 import androidx.compose.material.icons.outlined.Call
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.Search
@@ -30,6 +37,7 @@ import androidx.compose.material.icons.outlined.FilterList
 import androidx.compose.material.icons.outlined.DateRange
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.automirrored.outlined.Send
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Button
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
@@ -231,7 +239,9 @@ fun LeadsScreen(onLeadClick: (String) -> Unit, onCallLead: (String) -> Unit, vie
         }
         LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(top = 4.dp, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             if (state.leads.isEmpty()) item { PremiumCard(Modifier.fillMaxWidth()) { Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) { Text(if (state.query.isBlank() && state.selectedFilter == "ALL" && state.startDate == null && state.endDate == null) "No assigned leads" else "No matching leads", fontWeight = FontWeight.SemiBold); Text(if (state.query.isBlank() && state.selectedFilter == "ALL" && state.startDate == null && state.endDate == null) "New dashboard assignments appear automatically after sync." else "Try another search, status, or date filter.", color = Slate) } } }
-            items(state.leads, key = Lead::id) { lead -> LeadRow(lead, state.contactStats[lead.id], { onLeadClick(lead.id) }, { onCallLead(lead.id) }) }
+            items(state.leads, key = Lead::id) { lead ->
+                LeadRow(lead, state.contactStats[lead.id], state.invitations.filter { it.leadId == lead.id && (state.selectedSession == "ALL" || it.sessionId == state.selectedSession) && (state.selectedConfirmation == "ALL" || it.status == state.selectedConfirmation) }, state.statusOptions, { onLeadClick(lead.id) }, { onCallLead(lead.id) })
+            }
             if (state.matchingLeadCount > state.leads.size) item { Text("Showing ${state.leads.size} of ${state.matchingLeadCount}. Refine your search to see specific leads.", color = Slate, modifier = Modifier.padding(12.dp)) }
         }
     }
@@ -240,44 +250,93 @@ fun LeadsScreen(onLeadClick: (String) -> Unit, onCallLead: (String) -> Unit, vie
 private fun String.displayStage() = replace('_', ' ').replace('-', ' ').lowercase().split(' ').filter(String::isNotBlank).joinToString(" ") { it.replaceFirstChar(Char::uppercase) }
 
 @Composable
-private fun LeadRow(lead: Lead, stats: LeadCallStats?, onClick: () -> Unit, onCall: () -> Unit) = PremiumCard(
-    Modifier
-        .fillMaxWidth()
-        .semantics(mergeDescendants = true) {
-            role = Role.Button
-            contentDescription = buildList {
-                add(lead.name)
-                lead.company?.let(::add)
-                lead.city?.let(::add)
-                add(lead.displayPhone)
-                add("Stage ${lead.stageId.replace('_', ' ')}")
-            }.joinToString(", ")
-        }
-        .clickable(onClick = onClick),
+private fun LeadRow(
+    lead: Lead,
+    stats: LeadCallStats?,
+    invitations: List<com.callflow.app.data.remote.IntroductionInvitationDto>,
+    statusOptions: List<com.callflow.app.data.remote.IntroductionStatusDto>,
+    onClick: () -> Unit,
+    onCall: () -> Unit,
 ) {
-    Row(Modifier.padding(12.dp), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-            Text(lead.name, fontWeight = FontWeight.SemiBold)
-            Text(lead.shortDescription(), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall, maxLines = 2)
-            Text(lead.displayPhone, color = MaterialTheme.colorScheme.primary)
-            Text(buildList { add(lead.stageId.replace('_', ' ').uppercase()); lead.quality?.takeIf(String::isNotBlank)?.let { add(it.uppercase()) } }.joinToString(" · "), color = Indigo, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
-            Text(stats?.lastContactedAt?.let { "Last call ${DateTimeFormatter.ofPattern("dd MMM, HH:mm").withZone(ZoneId.systemDefault()).format(it)} · ${stats.attempts} attempts" } ?: "Never contacted", color = if (stats?.lastContactedAt == null) MaterialTheme.colorScheme.error else Slate, style = MaterialTheme.typography.labelMedium)
-            if (lead.doNotCall) Text("DO NOT CALL", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.labelMedium) else if (lead.duplicateCount > 1) Text("POSSIBLE DUPLICATE · ${lead.duplicateCount}", color = MaterialTheme.colorScheme.tertiary, style = MaterialTheme.typography.labelMedium)
-        }
-        Column(horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Surface(shape = androidx.compose.foundation.shape.RoundedCornerShape(8.dp), color = lead.scoreBadgeColor()) {
-                Text(
-                    text = "Score ${lead.score}",
-                    modifier = Modifier.padding(horizontal = 7.dp, vertical = 4.dp),
-                    style = MaterialTheme.typography.labelSmall,
-                    fontWeight = FontWeight.Bold,
-                )
+    val context = LocalContext.current
+    val secondary = MaterialTheme.colorScheme.onSurfaceVariant
+    val dateFormat = remember { DateTimeFormatter.ofPattern("dd MMM yyyy").withZone(ZoneId.systemDefault()) }
+    val status = invitations.map { invite -> statusOptions.find { it.id == invite.status }?.label ?: invite.status.replace('_', ' ') }.distinct().joinToString(" · ").ifBlank { lead.stageId.displayStage() }
+    PremiumCard(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            Row(Modifier.fillMaxWidth().clickable(onClick = onClick).semantics { contentDescription = "View lead ${lead.name}" }, horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                Surface(shape = CircleShape, color = MaterialTheme.colorScheme.surfaceContainerHighest, modifier = Modifier.size(52.dp)) {
+                    Box(contentAlignment = androidx.compose.ui.Alignment.Center) { Text(lead.name.trim().firstOrNull()?.uppercase() ?: "?", style = MaterialTheme.typography.titleLarge, color = secondary) }
+                }
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                    Text(lead.name, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) { Icon(Icons.Outlined.Call, null, Modifier.size(16.dp), tint = secondary); Text(lead.displayPhone, style = MaterialTheme.typography.bodyMedium, color = secondary) }
+                }
+                lead.serverId?.takeIf { it.all(Char::isDigit) && it.length <= 10 }?.let { Text("#$it", style = MaterialTheme.typography.labelMedium, color = secondary) }
             }
-            FloatingActionButton(
-                onClick = { if (!lead.doNotCall) onCall() },
-                modifier = Modifier.semantics { contentDescription = if (lead.doNotCall) "Call blocked for ${lead.name}" else "Call ${lead.name}" },
-                containerColor = if (lead.doNotCall) MaterialTheme.colorScheme.surfaceContainerHighest else MaterialTheme.colorScheme.primaryContainer,
-            ) { Icon(Icons.Outlined.Call, null, tint = if (lead.doNotCall) Slate else Indigo) }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("Status", fontWeight = FontWeight.Bold)
+                    Text(status, color = MaterialTheme.colorScheme.primary)
+                    Spacer(Modifier.height(5.dp))
+                    Text("Reminder at", fontWeight = FontWeight.Bold)
+                    Text(lead.nextFollowUpAt?.let { leadContactTime(it) } ?: "No reminder", color = secondary, style = MaterialTheme.typography.bodySmall)
+                }
+                Box(Modifier.width(1.dp).height(120.dp)) { Surface(color = MaterialTheme.colorScheme.outlineVariant, modifier = Modifier.fillMaxSize()) {} }
+                Column(Modifier.weight(1.25f), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                    LeadCardFact("Attempts", (stats?.attempts ?: 0).toString())
+                    LeadCardFact("Assigned on", "—")
+                    LeadCardFact("Created on", lead.createdAt?.let(dateFormat::format) ?: "—")
+                    LeadCardFact("Modified on", dateFormat.format(lead.updatedAt))
+                }
+            }
+            invitations.forEach { invite ->
+                Text("${invite.sessionTitle} · ${invite.sessionDate}".trimEnd(' ', '·'), style = MaterialTheme.typography.bodySmall, color = secondary)
+            }
+            lead.campaignId?.takeIf(String::isNotBlank)?.let { Text("#$it", style = MaterialTheme.typography.bodyMedium, color = secondary) }
+            if (lead.doNotCall) Text("DO NOT CALL", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.labelMedium)
+            else if (lead.duplicateCount > 1) Text("POSSIBLE DUPLICATE · ${lead.duplicateCount}", color = MaterialTheme.colorScheme.tertiary, style = MaterialTheme.typography.labelMedium)
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            Text(stats?.lastContactedAt?.let { "Last call ${leadContactTime(it)}" } ?: "No call has been made by you", modifier = Modifier.fillMaxWidth(), textAlign = androidx.compose.ui.text.style.TextAlign.Center, style = MaterialTheme.typography.bodySmall, fontStyle = androidx.compose.ui.text.font.FontStyle.Italic, color = secondary)
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            Text("Additional info", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                LeadAdditionalInfo("Company", lead.company)
+                LeadAdditionalInfo("Email", lead.email)
+                LeadAdditionalInfo("City", lead.city)
+            }
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                IconButton(onClick = onClick) { Icon(Icons.Outlined.Edit, "Lead details and edit session status", tint = MaterialTheme.colorScheme.primary) }
+                IconButton(onClick = {
+                    val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                    clipboard.setPrimaryClip(android.content.ClipData.newPlainText("Lead phone", lead.displayPhone))
+                    Toast.makeText(context, "Phone number copied", Toast.LENGTH_SHORT).show()
+                }) { Icon(Icons.Outlined.ContentCopy, "Copy phone number", tint = secondary) }
+                IconButton(onClick = {
+                    val phone = lead.normalizedPhone.filter(Char::isDigit)
+                    if (phone.isNotBlank()) runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://wa.me/$phone"))) }.onFailure { Toast.makeText(context, "Could not open WhatsApp", Toast.LENGTH_SHORT).show() }
+                }, enabled = lead.normalizedPhone.any(Char::isDigit)) { Icon(Icons.Outlined.ChatBubbleOutline, "Open WhatsApp conversation", tint = secondary) }
+                IconButton(onClick = onCall, enabled = !lead.doNotCall) { Icon(Icons.Outlined.Call, if (lead.doNotCall) "Call blocked" else "Call ${lead.name}", tint = if (lead.doNotCall) secondary.copy(alpha = .4f) else secondary) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun LeadCardFact(label: String, value: String) {
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text(label, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+        Text(value, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+@Composable
+private fun LeadAdditionalInfo(label: String, value: String?) {
+    Surface(shape = RoundedCornerShape(10.dp), color = MaterialTheme.colorScheme.surfaceContainerLowest, modifier = Modifier.width(148.dp).height(108.dp)) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(label, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelLarge)
+            Text(value?.takeIf(String::isNotBlank) ?: "Not provided", style = MaterialTheme.typography.bodySmall, maxLines = 3, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
